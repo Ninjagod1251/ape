@@ -69,7 +69,7 @@ def _list(cli_ctx, display_all):
             installed_second_class_plugins_no_version.add(f"{name}")
 
         elif name not in FIRST_CLASS_PLUGINS or name not in SECOND_CLASS_PLUGINS:
-            installed_third_class_plugins.add(f"{name}      {version})")
+            installed_third_class_plugins.add(f"{name}     {version})")
         else:
             cli_ctx.logger.error(f"{name} is not a plugin.")
 

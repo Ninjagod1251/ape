@@ -22,29 +22,33 @@ def assert_in_section(plugin, output, expected_section):
 
     headers = [INSTALLED_CORE_PLUGINS_HEADER, INSTALLED_PLUGINS_HEADER, AVAILABLE_PLUGINS_HEADER]
     headers = [h for h in headers if h in output]  # filter headers
-    output_dict = {}
-    output = output.split("\n\n")
 
-    # splits dynamically into a dictionary of values for the output to be processed
-    for index, value in enumerate(output):
-        value = value.replace(headers[index] + ":\n", "")
-        output_dict[headers[index]] = value
-    """
-    {
-        Installed Core Plugins: 'Installed Core Plugins:\n  test\n  geth\n  accounts\n  ethereum\n
-        compile\n  networks\n  console\n  pm\n  plugins\n  run',
-        Available Plugins: 'Available Plugins:\n  tokens\n  trezor\n  debug\n  vyper\n  hardhat\n
-        infura\n  etherscan\n  ledger\n  solidity\n  ens\n'}
-        INSTALLED_CORE_PLUGINS_HEADER = "Installed Core Plugins"
-    """
-    for key, value in output_dict.items():
-        section = key
-        if expected_section == section:
-            assert plugin in output_dict[key], "Not in the Section"
-        else:
-            assert plugin not in output_dict[key], "Wrong Section"
+    output = output.strip().split("\n\n")
+    output = [item.split("\n  ") for item in output]
+    output = {item[0].strip(":"): item[1:] for item in output}
+    output[INSTALLED_PLUGINS_HEADER] = [
+        tuple(item.split("     ")) for item in output[INSTALLED_PLUGINS_HEADER]
+    ]
 
-    #
+    actual_core_plugins = set(output[INSTALLED_CORE_PLUGINS_HEADER])
+    actual_install_plugins = set(output[INSTALLED_PLUGINS_HEADER])
+    actual_available_plugins = set(output[AVAILABLE_PLUGINS_HEADER])
+
+    # we show each set of the plugins are unique from other sets of plugins
+    assert actual_core_plugins.isdisjoint(actual_install_plugins)
+    assert actual_install_plugins.isdisjoint(actual_available_plugins)
+    assert actual_available_plugins.isdisjoint(actual_core_plugins)
+
+    expected_core_plugins = {p.replace("ape_", "") for p in FIRST_CLASS_PLUGINS if p != "ape"}
+    expected_second_plugins = {p.replace("ape_", "") for p in SECOND_CLASS_PLUGINS if p != "ape"}
+
+    # Core is all First Class Plugins
+    assert expected_core_plugins == actual_core_plugins
+    # Second Class are ether in installed or available
+    breakpoint()
+    assert expected_second_plugins == {name for name, _ in actual_install_plugins}.union(
+        actual_available_plugins
+    )
 
 
 # test plugins list -a with github access token and no 2nd class or third class installed
@@ -54,6 +58,7 @@ def test_plugins_list_all(ape_cli, runner):
 
     assert_plugins_in_output(FIRST_CLASS_PLUGINS, result.output, INSTALLED_CORE_PLUGINS_HEADER)
     assert_plugins_in_output(SECOND_CLASS_PLUGINS, result.output, AVAILABLE_PLUGINS_HEADER)
+    assert_plugins_in_output(SECOND_CLASS_PLUGINS, result.output, INSTALLED_PLUGINS_HEADER)
 
     # all list available accessible only if you have github token
     # display everything as a plugins and as installed
@@ -119,12 +124,14 @@ def unintall_plugins():
     pass
 
 
-def test_github_access_token(ape_cli, runner, caplog):
-    pass
-    # result = runner.invoke(ape_cli, ["plugins", "list"])
-    # breakpoint()
-    # assert result.exit_code == 0, "Exit was not successful"
-    # assert "$GITHUB_ACCESS_TOKEN not set, skipping 2nd class plugins\n" in result.output
+def test_github_access_token(ape_cli, runner, monkeypatch):
+    # from ape_plugins import utils
+    # monkeypatch.setattr(utils, "SECOND_CLASS_PLUGINS", set())
+
+    result = runner.invoke(ape_cli, ["plugins", "list"])
+    breakpoint()
+    assert result.exit_code == 0, "Exit was not successful"
+    assert "$GITHUB_ACCESS_TOKEN not set, skipping 2nd class plugins\n" in result.output
 
     # github token invoke with enviorment in click documenation test cli apps
     # isolate installed enviorment during testing
