@@ -1,6 +1,10 @@
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Iterator, List, Optional, Type, Union
 
+import click
+
+from ape.exceptions import AccountsError, AliasAlreadyInUseError, SignatureError
+from ape.logging import logger
 from ape.types import (
     AddressType,
     ContractType,
@@ -10,11 +14,10 @@ from ape.types import (
 )
 from ape.utils import cached_property
 
-from ..exceptions import AccountsError, AliasAlreadyInUseError, SignatureError
 from .address import AddressAPI
 from .base import abstractdataclass, abstractmethod
 from .contracts import ContractContainer, ContractInstance
-from .providers import ReceiptAPI, TransactionAPI
+from .providers import ReceiptAPI, TransactionAPI, TransactionType
 
 if TYPE_CHECKING:
     from ape.managers.config import ConfigManager
@@ -76,18 +79,23 @@ class AccountAPI(AddressAPI):
         elif txn.nonce < self.nonce:
             raise AccountsError("Invalid nonce, will not publish.")
 
-        # TODO: Add `GasEstimationAPI`
-        if txn.gas_price is None:
-            txn.gas_price = self.provider.gas_price
-        # else: assume user specified a correct price, or will take too much time to confirm
+        txn_type = TransactionType(txn.type)
+        if txn_type == TransactionType.STATIC and txn.gas_price is None:  # type: ignore
+            txn.gas_price = self.provider.gas_price  # type: ignore
+        elif txn_type == TransactionType.DYNAMIC:
+            if txn.max_priority_fee is None:  # type: ignore
+                txn.max_priority_fee = self.provider.priority_fee  # type: ignore
 
-        # NOTE: Allow overriding gas limit
+            if txn.max_fee is None:
+                txn.max_fee = self.provider.base_fee + txn.max_priority_fee
+            # else: Assume user specified the correct amount or txn will fail and waste gas
+
         if txn.gas_limit is None:
             txn.gas_limit = self.provider.estimate_gas_cost(txn)
-        # else: assume user specified the correct amount or txn will fail and waste gas
+        # else: Assume user specified the correct amount or txn will fail and waste gas
 
         if send_everything:
-            txn.value = self.balance - txn.gas_limit * txn.gas_price
+            txn.value = self.balance - txn.max_fee
 
         if txn.total_transfer_value > self.balance:
             raise AccountsError(
@@ -116,10 +124,9 @@ class AccountAPI(AddressAPI):
         data: Union[bytes, str, None] = None,
         **kwargs,
     ) -> ReceiptAPI:
-        txn = self._transaction_class(  # type: ignore
-            sender=self.address,
-            receiver=self._convert(account, AddressType),
-            **kwargs,
+
+        txn = self.provider.network.ecosystem.create_transaction(
+            sender=self.address, receiver=self._convert(account, AddressType), **kwargs
         )
 
         if data:
@@ -142,6 +149,9 @@ class AccountAPI(AddressAPI):
 
         if not receipt.contract_address:
             raise AccountsError(f"'{receipt.txn_hash}' did not create a contract.")
+
+        address = click.style(receipt.contract_address, bold=True)
+        logger.success(f"Contract '{contract_type.contractName}' deployed to: {address}")
 
         return ContractInstance(  # type: ignore
             _provider=self.provider,

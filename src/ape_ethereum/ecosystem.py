@@ -8,11 +8,19 @@ from eth_account._utils.legacy_transactions import (
     encode_transaction,
     serializable_unsigned_transaction_from_dict,
 )
-from eth_utils import keccak, to_bytes, to_int
+from eth_typing import HexStr
+from eth_utils import add_0x_prefix, keccak, to_bytes, to_int
 from hexbytes import HexBytes
 
-from ape.api import ContractLog, EcosystemAPI, ReceiptAPI, TransactionAPI, TransactionStatusEnum
-from ape.exceptions import DecodingError, SignatureError
+from ape.api import (
+    ContractLog,
+    EcosystemAPI,
+    ReceiptAPI,
+    TransactionAPI,
+    TransactionStatusEnum,
+    TransactionType,
+)
+from ape.exceptions import DecodingError, OutOfGasError, SignatureError, TransactionError
 from ape.types import ABI, AddressType
 
 NETWORKS = {
@@ -25,8 +33,7 @@ NETWORKS = {
 }
 
 
-# TODO: Fix this to add support for TypedTransaction
-class Transaction(TransactionAPI):
+class BaseTransaction(TransactionAPI):
     def is_valid(self) -> bool:
         return False
 
@@ -47,7 +54,6 @@ class Transaction(TransactionAPI):
             data["from"] = sender
 
         data["gas"] = data.pop("gas_limit")
-        data["gasPrice"] = data.pop("gas_price")
 
         # NOTE: Don't include signature
         data.pop("signature")
@@ -75,7 +81,70 @@ class Transaction(TransactionAPI):
         return signed_txn
 
 
+class StaticFeeTransaction(BaseTransaction):
+    """
+    Transactions that are pre-EIP-1559 and use the ``gasPrice`` field.
+    """
+
+    gas_price: int = None  # type: ignore
+    type: TransactionType = TransactionType.STATIC
+
+    @property
+    def max_fee(self) -> int:
+        return (self.gas_limit or 0) * (self.gas_price or 0)
+
+    @max_fee.setter
+    def max_fee(self, valie):
+        raise NotImplementedError("Max fee is not settable for static-fee transactions.")
+
+    def as_dict(self):
+        data = super().as_dict()
+        if "gas_price" in data:
+            data["gasPrice"] = data.pop("gas_price")
+
+        data.pop("type")
+
+        return data
+
+
+class DynamicFeeTransaction(BaseTransaction):
+    """
+    Transactions that are post-EIP-1559 and use the ``maxFeePerGas``
+    and ``maxPriorityFeePerGas`` fields.
+    """
+
+    max_fee: int = None  # type: ignore
+    max_priority_fee: int = None  # type: ignore
+    type: TransactionType = TransactionType.DYNAMIC
+
+    def as_dict(self):
+        data = super().as_dict()
+        if "max_fee" in data:
+            data["maxFeePerGas"] = data.pop("max_fee")
+        if "max_priority_fee" in data:
+            data["maxPriorityFeePerGas"] = data.pop("max_priority_fee")
+
+        if isinstance(data["type"], TransactionType):
+            data["type"] = data.pop("type").value
+
+        return data
+
+
 class Receipt(ReceiptAPI):
+    def raise_for_status(self, txn: TransactionAPI):
+        """
+        Raises :class`~ape.exceptions.OutOfGasError` when the
+        transaction failed and consumed all the gas.
+
+        Raises :class:`~ape.exceptions.TransactionError`
+        when the transaction has a failing status otherwise.
+        """
+        if txn.gas_limit and self.ran_out_of_gas(txn.gas_limit):
+            raise OutOfGasError()
+        elif self.status != TransactionStatusEnum.NO_ERROR:
+            txn_hash = HexBytes(self.txn_hash).hex()
+            raise TransactionError(message=f"Transaction '{txn_hash}' failed.")
+
     @classmethod
     def decode(cls, data: dict) -> ReceiptAPI:
         return cls(  # type: ignore
@@ -90,7 +159,10 @@ class Receipt(ReceiptAPI):
 
 
 class Ethereum(EcosystemAPI):
-    transaction_class = Transaction
+    transaction_types = {
+        TransactionType.STATIC: StaticFeeTransaction,
+        TransactionType.DYNAMIC: DynamicFeeTransaction,
+    }
     receipt_class = Receipt
 
     def encode_calldata(self, abi: ABI, *args) -> bytes:
@@ -111,15 +183,15 @@ class Ethereum(EcosystemAPI):
 
     def encode_deployment(
         self, deployment_bytecode: bytes, abi: Optional[ABI], *args, **kwargs
-    ) -> Transaction:
-        txn = Transaction(**kwargs)  # type: ignore
+    ) -> BaseTransaction:
+        txn = self.create_transaction(**kwargs)
         txn.data = deployment_bytecode
 
         # Encode args, if there are any
         if abi:
             txn.data += self.encode_calldata(abi, *args)
 
-        return txn
+        return txn  # type: ignore
 
     def encode_transaction(
         self,
@@ -127,14 +199,31 @@ class Ethereum(EcosystemAPI):
         abi: ABI,
         *args,
         **kwargs,
-    ) -> Transaction:
-        txn = Transaction(receiver=address, **kwargs)  # type: ignore
+    ) -> BaseTransaction:
+        txn = self.create_transaction(receiver=address, **kwargs)
 
         # Add method ID
         txn.data = keccak(to_bytes(text=abi.selector))[:4]
         txn.data += self.encode_calldata(abi, *args)
 
-        return txn
+        return txn  # type: ignore
+
+    def create_transaction(self, **kwargs) -> TransactionAPI:
+        """
+        Returns a tranaction using the given constructor kwargs.
+        """
+        if "type" in kwargs:
+            type_arg = HexStr(str(kwargs["type"]))
+            version_str = str(add_0x_prefix(type_arg))
+            version = TransactionType(version_str)
+        elif "gas_price" in kwargs:
+            version = TransactionType.STATIC
+        else:
+            version = TransactionType.DYNAMIC
+
+        txn_class = self.transaction_types[version]
+        kwargs["type"] = version.value
+        return txn_class(**kwargs)  # type: ignore
 
     def decode_event(self, abi: ABI, receipt: "ReceiptAPI") -> "ContractLog":
         filter_id = keccak(to_bytes(text=abi.selector))

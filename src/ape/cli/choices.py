@@ -1,7 +1,8 @@
+from enum import Enum
 from typing import Any, List, Optional, Type
 
 import click
-from click import Context, Parameter
+from click import Choice, Context, Parameter
 
 from ape import accounts, networks
 from ape.api.accounts import AccountAPI
@@ -77,6 +78,9 @@ def get_user_selected_account(
     accounts _outside_ of CLI options. For CLI options,
     use :meth:`ape.cli.options.account_option_that_prompts_when_not_given`.
     """
+    if account_type and (type(account_type) != type or not issubclass(account_type, AccountAPI)):
+        raise AccountsError(f"Cannot return accounts with type '{account_type}'.")
+
     prompt = AccountAliasPromptChoice(account_type=account_type, prompt_message=prompt_message)
     return prompt.get_user_selected_account()
 
@@ -136,3 +140,19 @@ class NetworkChoice(click.Choice):
 
     def get_metavar(self, param):
         return "[ecosystem-name][:[network-name][:[provider-name]]]"
+
+
+class OutputFormat(Enum):
+    TREE = "TREE"
+    YAML = "YAML"
+
+
+def output_format_choice(options: List[OutputFormat] = None) -> Choice:
+    """
+    Returns a ``click.Choice()`` type for the given options.
+    If
+    """
+    options = options or [o for o in OutputFormat]
+
+    # Uses `str` form of enum for CLI choices.
+    return click.Choice([o.value for o in options], case_sensitive=False)

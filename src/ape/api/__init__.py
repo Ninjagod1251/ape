@@ -10,6 +10,8 @@ from .providers import (
     TestProviderAPI,
     TransactionAPI,
     TransactionStatusEnum,
+    TransactionType,
+    UpstreamProvider,
     Web3Provider,
 )
 
@@ -33,5 +35,7 @@ __all__ = [
     "TestProviderAPI",
     "TransactionAPI",
     "TransactionStatusEnum",
+    "TransactionType",
+    "UpstreamProvider",
     "Web3Provider",
 ]

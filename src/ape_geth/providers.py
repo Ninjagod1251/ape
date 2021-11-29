@@ -16,16 +16,9 @@ from web3.gas_strategies.rpc import rpc_gas_price_strategy
 from web3.middleware import geth_poa_middleware
 from web3.types import NodeInfo
 
-from ape.api import ReceiptAPI, TransactionAPI
+from ape.api import ReceiptAPI, TransactionAPI, UpstreamProvider, Web3Provider
 from ape.api.config import ConfigItem
-from ape.api.providers import Web3Provider
-from ape.exceptions import (
-    ContractLogicError,
-    OutOfGasError,
-    ProviderError,
-    TransactionError,
-    VirtualMachineError,
-)
+from ape.exceptions import ContractLogicError, ProviderError, TransactionError, VirtualMachineError
 from ape.logging import logger
 from ape.utils import extract_nested_value, gas_estimation_error_message, generate_dev_accounts
 
@@ -43,6 +36,7 @@ class EphemeralGeth(LoggingMixin, BaseGethProcess):
         hostname: str,
         port: int,
         mnemonic: str,
+        number_of_accounts: int,
         chain_id: int = 1337,
         initial_balance: Union[str, int] = to_wei(10000, "ether"),
     ):
@@ -60,7 +54,7 @@ class EphemeralGeth(LoggingMixin, BaseGethProcess):
         self._clean()
 
         sealer = ensure_account_exists(**geth_kwargs).decode().replace("0x", "")
-        accounts = generate_dev_accounts(mnemonic)
+        accounts = generate_dev_accounts(mnemonic, number_of_accounts=number_of_accounts)
         genesis_data: Dict = {
             "overwrite": True,
             "coinbase": "0x0000000000000000000000000000000000000000",
@@ -140,12 +134,16 @@ class GethNotInstalledError(ConnectionError):
         )
 
 
-class GethProvider(Web3Provider):
+class GethProvider(Web3Provider, UpstreamProvider):
     _geth: Optional[EphemeralGeth] = None
 
     @property
     def uri(self) -> str:
         return getattr(self.config, self.network.ecosystem.name)[self.network.name]["uri"]
+
+    @property
+    def connection_str(self) -> str:
+        return self.uri
 
     def connect(self):
         self._web3 = Web3(HTTPProvider(self.uri))
@@ -164,18 +162,28 @@ class GethProvider(Web3Provider):
             config_manager = self.network.config_manager
             test_config = config_manager.get_config("test")
             mnemonic = test_config["mnemonic"]
+            num_of_accounts = test_config["number_of_accounts"]
 
             self._geth = EphemeralGeth(
                 self.data_folder,
                 parsed_uri.hostname,
                 parsed_uri.port,
                 mnemonic,
+                number_of_accounts=num_of_accounts,
             )
             self._geth.connect()
 
             if not self._web3.isConnected():
                 self._geth.disconnect()
                 raise ConnectionError("Unable to connect to locally running geth.")
+        else:
+            client_version = self._web3.clientVersion
+
+            if "geth" in client_version.lower():
+                logger.info(f"Connecting to existing Geth node at '{self.uri}'.")
+            else:
+                network_name = client_version.split("/")[0]
+                logger.warning(f"Connecting Geth plugin to non-Geth network '{network_name}'.")
 
         self._web3.eth.set_gas_price_strategy(rpc_gas_price_strategy)
 
@@ -239,9 +247,7 @@ class GethProvider(Web3Provider):
         except ValueError as err:
             raise _get_vm_error(err) from err
 
-        if txn.gas_limit is not None and receipt.ran_out_of_gas(txn.gas_limit):
-            raise OutOfGasError()
-
+        receipt.raise_for_status(txn)
         return receipt
 
 
@@ -252,17 +258,21 @@ def _get_vm_error(web3_value_error: ValueError) -> TransactionError:
     if isinstance(web3_value_error, Web3ContractLogicError):
         # This happens from `assert` or `require` statements.
         message = str(web3_value_error).split(":")[-1].strip()
-        return ContractLogicError(message)
+        if message == "execution reverted":
+            # Reverted without an error message
+            raise ContractLogicError()
+
+        return ContractLogicError(revert_message=message)
 
     if not len(web3_value_error.args):
-        return VirtualMachineError(web3_value_error)
+        return VirtualMachineError(base_err=web3_value_error)
 
     err_data = web3_value_error.args[0]
     if not isinstance(err_data, dict):
-        return VirtualMachineError(web3_value_error)
+        return VirtualMachineError(base_err=web3_value_error)
 
     message = str(err_data.get("message"))
     if not message:
-        return VirtualMachineError(web3_value_error)
+        return VirtualMachineError(base_err=web3_value_error)
 
     return VirtualMachineError(message=message, code=err_data.get("code"))

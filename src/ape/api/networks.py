@@ -4,10 +4,10 @@ from typing import TYPE_CHECKING, Dict, Iterator, List, Optional, Type
 
 from pluggy import PluginManager  # type: ignore
 
+from ape.exceptions import NetworkError, NetworkNotFoundError
 from ape.types import ABI, AddressType
 from ape.utils import cached_property
 
-from ..exceptions import NetworkError, NetworkNotFoundError
 from .base import abstractdataclass, abstractmethod, dataclass
 from .config import ConfigItem
 
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
     from .contracts import ContractLog
     from .explorers import ExplorerAPI
-    from .providers import ProviderAPI, ReceiptAPI, TransactionAPI
+    from .providers import ProviderAPI, ReceiptAPI, TransactionAPI, TransactionType
 
 
 @abstractdataclass
@@ -33,7 +33,7 @@ class EcosystemAPI:
     data_folder: Path
     request_header: str
 
-    transaction_class: Type["TransactionAPI"]
+    transaction_types: Dict["TransactionType", Type["TransactionAPI"]]
     receipt_class: Type["ReceiptAPI"]
 
     _default_network: str = "development"
@@ -78,6 +78,7 @@ class EcosystemAPI:
         return self._try_get_network(network_name)
 
     def __getattr__(self, network_name: str) -> "NetworkAPI":
+        network_name = network_name.replace("_", "-")
         return self._try_get_network(network_name)
 
     def add_network(self, network_name: str, network: "NetworkAPI"):
@@ -114,6 +115,10 @@ class EcosystemAPI:
 
     @abstractmethod
     def decode_event(self, abi: ABI, receipt: "ReceiptAPI") -> "ContractLog":
+        ...
+
+    @abstractmethod
+    def create_transaction(self, **kwargs) -> "TransactionAPI":
         ...
 
     def _try_get_network(self, network_name):
@@ -257,11 +262,7 @@ class NetworkAPI:
                     request_header=self.request_header,
                 )
 
-        if len(providers) > 0:
-            return providers
-
-        else:
-            raise NetworkError("No network providers found")
+        return providers
 
     def get_provider(
         self,
