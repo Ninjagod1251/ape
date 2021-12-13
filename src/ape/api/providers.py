@@ -1,14 +1,18 @@
+import time
 from enum import Enum, IntEnum
 from pathlib import Path
-from typing import Iterator, List, Optional
+from typing import Dict, Iterator, List, Optional
 
 from dataclassy import as_dict
+from eth_typing import HexStr
+from eth_utils import add_0x_prefix
 from hexbytes import HexBytes
+from tqdm import tqdm  # type: ignore
 from web3 import Web3
 
-from ape.exceptions import ProviderError
+from ape.exceptions import ProviderError, TransactionError
 from ape.logging import logger
-from ape.types import TransactionSignature
+from ape.types import BlockID, TransactionSignature
 
 from . import networks
 from .base import abstractdataclass, abstractmethod
@@ -30,6 +34,9 @@ class TransactionAPI:
     gas_limit: Optional[int] = None  # NOTE: `Optional` only to denote using default behavior
     data: bytes = b""
     type: TransactionType = TransactionType.STATIC
+
+    # If left as None, will get set to the network's default required confirmations.
+    required_confirmations: Optional[int] = None
 
     signature: Optional[TransactionSignature] = None
 
@@ -97,8 +104,48 @@ class TransactionStatusEnum(IntEnum):
     NO_ERROR = 1
 
 
+class ConfirmationsProgressBar:
+    """
+    A progress bar tracking the confirmations of a transaction.
+    """
+
+    def __init__(self, confirmations: int):
+        self._req_confs = confirmations
+        self._bar = tqdm(range(confirmations))
+        self._confs = 0
+
+    def __enter__(self):
+        self._update_bar(0)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._bar.close()
+
+    @property
+    def confs(self) -> int:
+        return self._confs
+
+    @confs.setter
+    def confs(self, new_value):
+        if new_value == self._confs:
+            return
+
+        diff = new_value - self._confs
+        self._confs = new_value
+        self._update_bar(diff)
+
+    def _update_bar(self, amount: int):
+        self._set_description()
+        self._bar.update(amount)
+        self._bar.refresh()
+
+    def _set_description(self):
+        self._bar.set_description(f"Confirmations ({self._confs}/{self._req_confs})")
+
+
 @abstractdataclass
 class ReceiptAPI:
+    provider: "ProviderAPI"
     txn_hash: str
     status: TransactionStatusEnum
     block_number: int
@@ -106,6 +153,9 @@ class ReceiptAPI:
     gas_price: int
     logs: List[dict] = []
     contract_address: Optional[str] = None
+    required_confirmations: int = 0
+    sender: str
+    nonce: int
 
     def __post_init__(self):
         txn_hash = self.txn_hash.hex() if isinstance(self.txn_hash, HexBytes) else self.txn_hash
@@ -130,6 +180,76 @@ class ReceiptAPI:
     @classmethod
     @abstractmethod
     def decode(cls, data: dict) -> "ReceiptAPI":
+        ...
+
+    def await_confirmations(self) -> "ReceiptAPI":
+        """
+        Waits for a transaction to be considered confirmed.
+        Returns the confirmed receipt.
+        """
+        # Wait for nonce from provider to increment.
+        sender_nonce = self.provider.get_nonce(self.sender)
+        while sender_nonce == self.nonce:  # type: ignore
+            time.sleep(1)
+            sender_nonce = self.provider.get_nonce(self.sender)
+
+        if self.required_confirmations == 0:
+            # The transaction might not yet be confirmed but
+            # the user is aware of this. Or, this is a development environment.
+            return self
+
+        confirmations_occurred = 0
+
+        with ConfirmationsProgressBar(self.required_confirmations) as progress_bar:
+            while confirmations_occurred < self.required_confirmations:
+                latest_block = self.provider.get_block("latest")
+                confirmations_occurred = latest_block.number - self.block_number  # type: ignore
+                progress_bar.confs = confirmations_occurred
+
+                if confirmations_occurred == self.required_confirmations:
+                    break
+
+                time.sleep(5)
+
+        return self
+
+
+@abstractdataclass
+class BlockGasAPI:
+    gas_limit: int
+    gas_used: int
+    base_fee: Optional[int] = None
+
+    @classmethod
+    @abstractmethod
+    def decode(cls, data: Dict) -> "BlockGasAPI":
+        ...
+
+
+@abstractdataclass
+class BlockConsensusAPI:
+    difficulty: Optional[int] = None
+    total_difficulty: Optional[int] = None
+
+    @classmethod
+    @abstractmethod
+    def decode(cls, data: Dict) -> "BlockConsensusAPI":
+        ...
+
+
+@abstractdataclass
+class BlockAPI:
+    gas_data: BlockGasAPI
+    consensus_data: BlockConsensusAPI
+    hash: HexBytes
+    number: int
+    parent_hash: HexBytes
+    size: int
+    timestamp: float
+
+    @classmethod
+    @abstractmethod
+    def decode(cls, data: Dict) -> "BlockAPI":
         ...
 
 
@@ -191,6 +311,10 @@ class ProviderAPI:
     @property
     def base_fee(self) -> int:
         raise NotImplementedError("base_fee is not implemented by this provider")
+
+    @abstractmethod
+    def get_block(self, block_id: BlockID) -> BlockAPI:
+        ...
 
     @abstractmethod
     def send_call(self, txn: TransactionAPI) -> bytes:  # Return value of function
@@ -271,8 +395,42 @@ class Web3Provider(ProviderAPI):
 
     @property
     def base_fee(self) -> int:
-        block = self._web3.eth.get_block("latest")
-        return block.baseFeePerGas  # type: ignore
+        """
+        Returns the current base fee from the latest block.
+
+        NOTE: If your chain does not support base_fees (EIP-1559),
+        this method will raise a not-implemented error.
+        """
+        block = self.get_block("latest")
+
+        if block.gas_data.base_fee is None:
+            # Non-EIP-1559 chains or we time-travelled pre-London fork.
+            raise NotImplementedError("base_fee is not implemented by this provider.")
+
+        return block.gas_data.base_fee
+
+    def get_block(self, block_id: BlockID) -> BlockAPI:
+        """
+        Returns a block for the given ID.
+
+        Args:
+            block_id: The ID of the block to get. Set as
+              "latest" to get the latest block,
+              "earliest" to get the earliest block,
+              "pending" to get the pending block,
+              or pass in a block number or hash.
+
+        Returns:
+            The block for the given block ID.
+        """
+        if isinstance(block_id, str):
+            block_id = HexStr(block_id)
+
+            if block_id.isnumeric():
+                block_id = add_0x_prefix(block_id)
+
+        block_data = self._web3.eth.get_block(block_id)
+        return self.network.ecosystem.block_class.decode(block_data)  # type: ignore
 
     def get_nonce(self, address: str) -> int:
         """
@@ -299,14 +457,34 @@ class Web3Provider(ProviderAPI):
         """
         return self._web3.eth.call(txn.as_dict())
 
-    def get_transaction(self, txn_hash: str) -> ReceiptAPI:
+    def get_transaction(self, txn_hash: str, required_confirmations: int = 0) -> ReceiptAPI:
         """
         Returns the information about a transaction requested by transaction hash.
+
+        Params:
+            txn_hash (str): The hash of the transaction to retrieve.
+            required_confirmations (int): If more than 0, waits for that many
+                confirmations before returning the receipt. This is to increase confidence
+                that your transaction is in its final position on the blockchain. Defaults
+                to 0.
+
+        Returns:
+            The receipt of the transaction with the given hash.
         """
-        # TODO: Work on API that let's you work with ReceiptAPI and re-send transactions
-        receipt = self._web3.eth.wait_for_transaction_receipt(txn_hash)  # type: ignore
+        if required_confirmations < 0:
+            raise TransactionError(message="Required confirmations cannot be negative.")
+
+        receipt_data = self._web3.eth.wait_for_transaction_receipt(HexBytes(txn_hash))
         txn = self._web3.eth.get_transaction(txn_hash)  # type: ignore
-        return self.network.ecosystem.receipt_class.decode({**txn, **receipt})
+        receipt = self.network.ecosystem.receipt_class.decode(
+            {
+                "provider": self,
+                "required_confirmations": required_confirmations,
+                **txn,
+                **receipt_data,
+            }
+        )
+        return receipt.await_confirmations()
 
     def get_events(self, **filter_params) -> Iterator[dict]:
         """
@@ -316,7 +494,12 @@ class Web3Provider(ProviderAPI):
 
     def send_transaction(self, txn: TransactionAPI) -> ReceiptAPI:
         txn_hash = self._web3.eth.send_raw_transaction(txn.encode())
-        receipt = self.get_transaction(txn_hash.hex())
+        req_confs = (
+            txn.required_confirmations
+            if txn.required_confirmations is not None
+            else self.network.required_confirmations
+        )
+        receipt = self.get_transaction(txn_hash.hex(), required_confirmations=req_confs)
         return receipt
 
 

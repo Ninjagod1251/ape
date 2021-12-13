@@ -4,10 +4,13 @@ from typing import List, Set
 from ape.types import ContractType
 
 from .base import abstractdataclass, abstractmethod
+from .config import ConfigItem
 
 
 @abstractdataclass
 class CompilerAPI:
+    config: ConfigItem
+
     @property
     @abstractmethod
     def name(self) -> str:

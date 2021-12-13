@@ -3,7 +3,7 @@ from typing import Dict, List, Set
 
 from dataclassy import dataclass
 
-from ape.api.compiler import CompilerAPI
+from ape.api import CompilerAPI
 from ape.exceptions import CompilerError
 from ape.logging import logger
 from ape.plugins import PluginManager
@@ -23,8 +23,8 @@ class CompilerManager:
         registered_compilers = {}
 
         for plugin_name, (extensions, compiler_class) in self.plugin_manager.register_compiler:
-            # TODO: Add config via ``self.config.get_config(plugin_name)``
-            compiler = compiler_class()
+            config = self.config.get_config(plugin_name)
+            compiler = compiler_class(config=config)
 
             for extension in extensions:
 
@@ -42,7 +42,7 @@ class CompilerManager:
         for extension in extensions:
             paths_to_compile = [path for path in contract_filepaths if path.suffix == extension]
             for path in paths_to_compile:
-                logger.info(f"Compiling '{self._get_contract_path(path)}'")
+                logger.info(f"Compiling '{self._get_contract_path(path)}'.")
 
             for contract_type in self.registered_compilers[extension].compile(paths_to_compile):
 

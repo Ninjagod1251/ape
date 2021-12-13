@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from eth_abi import decode_abi as abi_decode
 from eth_abi import encode_abi as abi_encode
@@ -9,10 +9,14 @@ from eth_account._utils.legacy_transactions import (
     serializable_unsigned_transaction_from_dict,
 )
 from eth_typing import HexStr
-from eth_utils import add_0x_prefix, keccak, to_bytes, to_int
+from eth_utils import add_0x_prefix, keccak, to_bytes, to_checksum_address, to_int
 from hexbytes import HexBytes
 
 from ape.api import (
+    BlockAPI,
+    BlockConsensusAPI,
+    BlockGasAPI,
+    ConfigItem,
     ContractLog,
     EcosystemAPI,
     ReceiptAPI,
@@ -31,6 +35,18 @@ NETWORKS = {
     "rinkeby": (4, 4),
     "goerli": (420, 420),
 }
+
+
+class NetworkConfig(ConfigItem):
+    required_confirmations: int = 0
+
+
+class EthereumConfig(ConfigItem):
+    mainnet: NetworkConfig = NetworkConfig(required_confirmations=7)  # type: ignore
+    ropsten: NetworkConfig = NetworkConfig(required_confirmations=12)  # type: ignore
+    kovan: NetworkConfig = NetworkConfig(required_confirmations=3)  # type: ignore
+    rinkeby: NetworkConfig = NetworkConfig(required_confirmations=3)  # type: ignore
+    goerli: NetworkConfig = NetworkConfig(required_confirmations=10)  # type: ignore
 
 
 class BaseTransaction(TransactionAPI):
@@ -54,6 +70,9 @@ class BaseTransaction(TransactionAPI):
             data["from"] = sender
 
         data["gas"] = data.pop("gas_limit")
+
+        if "required_confirmations" in data:
+            data.pop("required_confirmations")
 
         # NOTE: Don't include signature
         data.pop("signature")
@@ -148,6 +167,8 @@ class Receipt(ReceiptAPI):
     @classmethod
     def decode(cls, data: dict) -> ReceiptAPI:
         return cls(  # type: ignore
+            provider=data["provider"],
+            required_confirmations=data.get("required_confirmations", 0),
             txn_hash=data["hash"],
             status=TransactionStatusEnum(data["status"]),
             block_number=data["blockNumber"],
@@ -155,6 +176,43 @@ class Receipt(ReceiptAPI):
             gas_price=data["gasPrice"],
             logs=data["logs"],
             contract_address=data["contractAddress"],
+            sender=data["from"],
+            nonce=data["nonce"],
+        )
+
+
+class BlockGasFee(BlockGasAPI):
+    @classmethod
+    def decode(cls, data: Dict) -> BlockGasAPI:
+        return BlockGasFee(  # type: ignore
+            gas_limit=data["gasLimit"],
+            gas_used=data["gasUsed"],
+            base_fee=data.get("baseFeePerGas"),
+        )
+
+
+class BlockConsensus(BlockConsensusAPI):
+    difficulty: Optional[int] = None
+    total_difficulty: Optional[int] = None
+
+    @classmethod
+    def decode(cls, data: Dict) -> BlockConsensusAPI:
+        return cls(
+            difficulty=data.get("difficulty"), total_difficulty=data.get("totalDifficulty")
+        )  # type: ignore
+
+
+class Block(BlockAPI):
+    @classmethod
+    def decode(cls, data: Dict) -> BlockAPI:
+        return cls(  # type: ignore
+            gas_data=BlockGasFee.decode(data),
+            consensus_data=BlockConsensus.decode(data),
+            number=data["number"],
+            size=data.get("size"),
+            timestamp=data.get("timestamp"),
+            hash=data.get("hash"),
+            parent_hash=data.get("hash"),
         )
 
 
@@ -164,6 +222,11 @@ class Ethereum(EcosystemAPI):
         TransactionType.DYNAMIC: DynamicFeeTransaction,
     }
     receipt_class = Receipt
+    block_class = Block
+
+    @property
+    def config(self) -> EthereumConfig:
+        return self.config_manager.get_config("ethereum")  # type: ignore
 
     def encode_calldata(self, abi: ABI, *args) -> bytes:
         if abi.inputs:
@@ -173,10 +236,25 @@ class Ethereum(EcosystemAPI):
         else:
             return HexBytes(b"")
 
-    def decode_calldata(self, abi: ABI, raw_data: bytes) -> Any:
+    def decode_calldata(self, abi: ABI, raw_data: bytes) -> Tuple[Any, ...]:
         output_types = [o.canonical_type for o in abi.outputs]
         try:
-            return abi_decode(output_types, raw_data)
+            vm_return_values = abi_decode(output_types, raw_data)
+            if not vm_return_values:
+                return vm_return_values
+
+            if not isinstance(vm_return_values, (tuple, list)):
+                vm_return_values = (vm_return_values,)
+
+            output_values: List[Any] = []
+            for index in range(len(vm_return_values)):
+                value = vm_return_values[index]
+                if index < len(output_types) and output_types[index] == "address":
+                    value = to_checksum_address(value)
+
+                output_values.append(value)
+
+            return tuple(output_values)
 
         except InsufficientDataBytes as err:
             raise DecodingError() from err
@@ -223,6 +301,16 @@ class Ethereum(EcosystemAPI):
 
         txn_class = self.transaction_types[version]
         kwargs["type"] = version.value
+
+        if "required_confirmations" not in kwargs or kwargs["required_confirmations"] is None:
+            # Attempt to use default required-confirmations from `ape-config.yaml`.
+            required_confirmations = 0
+            active_provider = self.network_manager.active_provider
+            if active_provider:
+                required_confirmations = active_provider.network.required_confirmations
+
+            kwargs["required_confirmations"] = required_confirmations
+
         return txn_class(**kwargs)  # type: ignore
 
     def decode_event(self, abi: ABI, receipt: "ReceiptAPI") -> "ContractLog":

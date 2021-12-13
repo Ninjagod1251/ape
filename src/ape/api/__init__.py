@@ -1,10 +1,15 @@
 from .accounts import AccountAPI, AccountContainerAPI, TestAccountAPI, TestAccountContainerAPI
 from .address import Address, AddressAPI
+from .compiler import CompilerAPI
+from .config import ConfigDict, ConfigEnum, ConfigItem
 from .contracts import ContractInstance, ContractLog
 from .convert import ConverterAPI
 from .explorers import ExplorerAPI
 from .networks import EcosystemAPI, NetworkAPI, ProviderContextManager, create_network_type
 from .providers import (
+    BlockAPI,
+    BlockConsensusAPI,
+    BlockGasAPI,
     ProviderAPI,
     ReceiptAPI,
     TestProviderAPI,
@@ -20,6 +25,13 @@ __all__ = [
     "AccountContainerAPI",
     "Address",
     "AddressAPI",
+    "BlockAPI",
+    "BlockConsensusAPI",
+    "BlockGasAPI",
+    "CompilerAPI",
+    "ConfigDict",
+    "ConfigEnum",
+    "ConfigItem",
     "ContractInstance",
     "ContractLog",
     "ConverterAPI",
