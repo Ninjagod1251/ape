@@ -6,23 +6,31 @@ import click
 from ape.exceptions import AccountsError, AliasAlreadyInUseError, SignatureError, TransactionError
 from ape.logging import logger
 from ape.types import AddressType, MessageSignature, SignableMessage, TransactionSignature
-from ape.utils import cached_property
+from ape.utils import abstractdataclass, abstractmethod, cached_property
 
 from .address import AddressAPI
-from .base import abstractdataclass, abstractmethod
-from .contracts import ContractContainer, ContractInstance
 from .providers import ReceiptAPI, TransactionAPI, TransactionType
 
 if TYPE_CHECKING:
+    from ape.contracts import ContractContainer, ContractInstance
     from ape.managers.config import ConfigManager
 
 
 # NOTE: AddressAPI is a dataclass already
 class AccountAPI(AddressAPI):
+    """
+    An API class representing an account.
+    """
+
     container: "AccountContainerAPI"
 
     def __dir__(self) -> List[str]:
-        # This displays methods to IPython on `a.[TAB]` tab completion
+        """
+        Display methods to IPython on ``a.[TAB]`` tab completion.
+
+        Returns:
+            list[str]: Method names that IPython uses for tab completion.
+        """
         return list(super(AddressAPI, self).__dir__()) + [
             "alias",
             "sign_message",
@@ -35,7 +43,7 @@ class AccountAPI(AddressAPI):
     @property
     def alias(self) -> Optional[str]:
         """
-        Override with whatever alias might want to use, if applicable
+        A shortened-name for quicker access to the account.
         """
         return None
 
@@ -64,6 +72,16 @@ class AccountAPI(AddressAPI):
         """
 
     def call(self, txn: TransactionAPI, send_everything: bool = False) -> ReceiptAPI:
+        """
+        Make a transaction call.
+
+        Args:
+            txn (:class:`~ape.api.providers.TransactionAPI`): The transaction to submit in a call.
+            send_everything (bool): ``True`` will send the value difference from balance and fee.
+
+        Returns:
+            :class:`~ape.api.providers.ReceiptAPI`
+        """
         # NOTE: Use "expected value" for Chain ID, so if it doesn't match actual, we raise
         txn.chain_id = self.provider.network.chain_id
 
@@ -123,6 +141,17 @@ class AccountAPI(AddressAPI):
         data: Union[bytes, str, None] = None,
         **kwargs,
     ) -> ReceiptAPI:
+        """
+        Send funds to an account.
+
+        Args:
+            account (str): The account to send funds to.
+            value (str): The amount to send.
+            data (str): Extra data to include in the transaction.
+
+        Returns:
+            :class:`~ape.api.providers.ReceiptAPI`
+        """
 
         txn = self.provider.network.ecosystem.create_transaction(
             sender=self.address, receiver=self._convert(account, AddressType), **kwargs
@@ -136,7 +165,21 @@ class AccountAPI(AddressAPI):
 
         return self.call(txn, send_everything=value is None)
 
-    def deploy(self, contract: ContractContainer, *args, **kwargs) -> ContractInstance:
+    def deploy(self, contract: "ContractContainer", *args, **kwargs) -> "ContractInstance":
+        """
+        Create a smart contract on the blockchain.
+
+        Method Limitations:
+            The smart contract must compile before deploying.
+            A provider must be active.
+
+        Args:
+            contract (:class:`~ape.contracts.ContractContainer`):
+                The type of contract to deploy.
+
+        Returns:
+            :class:`~ape.contracts.ContractInstance`
+        """
 
         txn = contract(*args, **kwargs)
         txn.sender = self.address
@@ -148,6 +191,8 @@ class AccountAPI(AddressAPI):
         address = click.style(receipt.contract_address, bold=True)
         logger.success(f"Contract '{contract.contract_type.contractName}' deployed to: {address}")
 
+        from ape.contracts import ContractInstance
+
         return ContractInstance(  # type: ignore
             _provider=self.provider,
             _address=receipt.contract_address,
@@ -157,6 +202,10 @@ class AccountAPI(AddressAPI):
 
 @abstractdataclass
 class AccountContainerAPI:
+    """
+    An API class for managing accounts.
+    """
+
     data_folder: Path
     account_type: Type[AccountAPI]
     config_manager: "ConfigManager"
@@ -164,17 +213,35 @@ class AccountContainerAPI:
     @property
     @abstractmethod
     def aliases(self) -> Iterator[str]:
-        ...
+        """
+        List all available aliases.
+
+        Returns:
+            iter[str]: List of aliases.
+        """
 
     @abstractmethod
     def __len__(self) -> int:
-        ...
+        """
+        Number of accounts.
+        """
 
     @abstractmethod
     def __iter__(self) -> Iterator[AccountAPI]:
-        ...
+        """
+        Iterate over all accounts.
+
+        Returns:
+            iter[:class:`~ape.api.accounts.AccountAPI`]
+        """
 
     def __getitem__(self, address: AddressType) -> AccountAPI:
+        """
+        Get an account by address.
+
+        Returns:
+            :class:`~ape.api.accounts.AccountAPI`
+        """
         for account in self.__iter__():
             if account.address == address:
                 return account
@@ -182,6 +249,12 @@ class AccountContainerAPI:
         raise IndexError(f"No local account {address}.")
 
     def append(self, account: AccountAPI):
+        """
+        Add an account to the container.
+
+        Args:
+            account (:class:`~ape.api.accounts.AccountAPI`): The account to add.
+        """
         self._verify_account_type(account)
 
         if account.address in self:
@@ -195,6 +268,13 @@ class AccountContainerAPI:
         raise NotImplementedError("Must define this method to use `container.append(acct)`.")
 
     def remove(self, account: AccountAPI):
+        """
+        Delete an account.
+        Must be known to ``ape`` or else raises :class:`~ape.exceptions.AccountsError`.
+
+        Args:
+            account (:class:`~ape.accounts.AccountAPI`): The account to remove.
+        """
         self._verify_account_type(account)
 
         if account.address not in self:
@@ -203,9 +283,28 @@ class AccountContainerAPI:
         self.__delitem__(account.address)
 
     def __delitem__(self, address: AddressType):
+        """
+        Delete an account.
+        Must be overriden or else raises ``NotImplementedError``.
+
+        Args:
+            address: (address :class:`~ape.types.AddressType`):
+                        The address of the account to delete.
+
+        """
         raise NotImplementedError("Must define this method to use `container.remove(acct)`.")
 
     def __contains__(self, address: AddressType) -> bool:
+        """
+        Check if the address is an existing account in ``ape``.
+        Must be a valid address or else raises ``IndexError``.
+
+        Args:
+            address :class:`~ape.types.AddressType`: An account address.
+
+        Returns:
+            bool: ``True`` if ``ape`` manages the account with the given address.
+        """
         try:
             self.__getitem__(address)
             return True

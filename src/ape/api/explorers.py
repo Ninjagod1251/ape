@@ -1,11 +1,15 @@
+from typing import Optional
+
+from ape.types import AddressType, ContractType
+from ape.utils import abstractdataclass, abstractmethod
+
 from . import networks
-from .base import abstractdataclass, abstractmethod
 
 
 @abstractdataclass
 class ExplorerAPI:
     """
-    An Explorer must work with a particular Network in a particular Ecosystem
+    An Explorer must work with a particular Network in a particular Ecosystem.
     """
 
     name: str  # Plugin name
@@ -13,9 +17,37 @@ class ExplorerAPI:
     request_header: str
 
     @abstractmethod
-    def get_address_url(self, address: str) -> str:
-        ...
+    def get_address_url(self, address: AddressType) -> str:
+        """
+        Get an address URL, such as for a transaction.
+
+        Args:
+            address (str): The address to get the URL for.
+
+        Returns:
+            str
+        """
 
     @abstractmethod
     def get_transaction_url(self, transaction_hash: str) -> str:
-        ...
+        """
+        Get the transaction URL for the given transaction.
+
+        Args:
+            transaction_hash (str): The transaction hash.
+
+        Returns:
+            str
+        """
+
+    @abstractmethod
+    def get_contract_type(self, address: AddressType) -> Optional[ContractType]:
+        """
+        Get the contract type for a given address if it has been published in an explorer.
+
+        Args:
+            address (str): The contract address.
+
+        Returns:
+            class:`~ape.contracts.ContractType` if published, else ``None``.
+        """

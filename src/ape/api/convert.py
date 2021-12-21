@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
-from .base import abstractdataclass, abstractmethod
+from ape.utils import abstractdataclass, abstractmethod
+
 from .config import ConfigItem
 
 if TYPE_CHECKING:
@@ -20,8 +21,14 @@ class ConverterAPI(Generic[ConvertedType]):
     @abstractmethod
     def is_convertible(self, value: Any) -> bool:
         """
-        Returns `True` if string value provided by `value` is convertible using
-        `self.convert(value)`
+        Returns ``True`` if string value provided by ``value`` is convertible using
+        :meth:`ape.api.convert.ConverterAPI.convert`.
+
+        Args:
+            value (str): The value to check.
+
+        Returns:
+            bool: ``True`` when the given value can be converted.
         """
 
     @abstractmethod
