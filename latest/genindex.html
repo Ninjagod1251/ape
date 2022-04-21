@@ -58,11 +58,13 @@
               <p class="caption" role="heading"><span class="caption-text">User Guides</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="userguides/quickstart.html">Quick Start</a></li>
+<li class="toctree-l1"><a class="reference internal" href="userguides/quickstart.html#ape-console">Ape Console</a></li>
 <li class="toctree-l1"><a class="reference internal" href="userguides/projects.html">Developing Projects with Ape</a></li>
 <li class="toctree-l1"><a class="reference internal" href="userguides/plugins.html">Developing Plugins</a></li>
 <li class="toctree-l1"><a class="reference internal" href="userguides/config.html">Configure Ape</a></li>
 <li class="toctree-l1"><a class="reference internal" href="userguides/transactions.html">Making Transactions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="userguides/console.html">Ape Console</a></li>
+<li class="toctree-l1"><a class="reference internal" href="userguides/testing.html">Testing</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">CLI Reference</span></p>
 <ul>
@@ -1155,6 +1157,8 @@
       </ul></li>
       <li><a href="methoddocs/api.html#ape.api.networks.create_network_type">create_network_type() (in module ape.api.networks)</a>
 </li>
+      <li><a href="methoddocs/api.html#ape.api.networks.EcosystemAPI.create_transaction">create_transaction() (ape.api.networks.EcosystemAPI method)</a>
+</li>
   </ul></td>
 </tr></table>
 
@@ -1171,9 +1175,15 @@
       </ul></li>
       <li><a href="methoddocs/managers.html#ape.managers.config.ConfigManager.DATA_FOLDER">DATA_FOLDER (ape.managers.config.ConfigManager attribute)</a>
 </li>
+      <li><a href="methoddocs/api.html#ape.api.networks.EcosystemAPI.decode_address">decode_address() (ape.api.networks.EcosystemAPI class method)</a>
+</li>
       <li><a href="methoddocs/api.html#ape.api.networks.EcosystemAPI.decode_block">decode_block() (ape.api.networks.EcosystemAPI method)</a>
 </li>
+      <li><a href="methoddocs/api.html#ape.api.networks.EcosystemAPI.decode_logs">decode_logs() (ape.api.networks.EcosystemAPI method)</a>
+</li>
       <li><a href="methoddocs/api.html#ape.api.networks.EcosystemAPI.decode_receipt">decode_receipt() (ape.api.networks.EcosystemAPI method)</a>
+</li>
+      <li><a href="methoddocs/api.html#ape.api.networks.EcosystemAPI.decode_returndata">decode_returndata() (ape.api.networks.EcosystemAPI method)</a>
 </li>
       <li><a href="methoddocs/exceptions.html#ape.exceptions.DecodingError">DecodingError</a>
 </li>
@@ -1185,12 +1195,12 @@
       </ul></li>
       <li><a href="methoddocs/api.html#ape.api.networks.EcosystemAPI.default_network">default_network (ape.api.networks.EcosystemAPI property)</a>
 </li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="methoddocs/api.html#ape.api.networks.NetworkAPI.default_provider">default_provider (ape.api.networks.NetworkAPI property)</a>
 </li>
       <li><a href="methoddocs/managers.html#ape.managers.query.DefaultQueryProvider">DefaultQueryProvider (class in ape.managers.query)</a>
 </li>
-  </ul></td>
-  <td style="width: 33%; vertical-align: top;"><ul>
       <li><a href="methoddocs/managers.html#ape.managers.config.ConfigManager.dependencies">dependencies (ape.managers.config.ConfigManager attribute)</a>
 
       <ul>
@@ -1237,6 +1247,12 @@
 </li>
       <li><a href="methoddocs/plugins.html#ape.plugins.network.EcosystemPlugin.ecosystems">ecosystems() (ape.plugins.network.EcosystemPlugin method)</a>
 </li>
+      <li><a href="methoddocs/api.html#ape.api.networks.EcosystemAPI.encode_address">encode_address() (ape.api.networks.EcosystemAPI class method)</a>
+</li>
+      <li><a href="methoddocs/api.html#ape.api.networks.EcosystemAPI.encode_deployment">encode_deployment() (ape.api.networks.EcosystemAPI method)</a>
+</li>
+      <li><a href="methoddocs/api.html#ape.api.networks.EcosystemAPI.encode_transaction">encode_transaction() (ape.api.networks.EcosystemAPI method)</a>
+</li>
       <li><a href="methoddocs/managers.html#ape.managers.query.QueryManager.engines">engines (ape.managers.query.QueryManager property)</a>
 </li>
       <li><a href="methoddocs/api.html#ape.api.providers.ProviderAPI.estimate_gas_cost">estimate_gas_cost() (ape.api.providers.ProviderAPI method)</a>
@@ -1251,10 +1267,10 @@
         <li><a href="methoddocs/managers.html#ape.managers.query.DefaultQueryProvider.estimate_query">(ape.managers.query.DefaultQueryProvider method)</a>
 </li>
       </ul></li>
-      <li><a href="methoddocs/types.html#ape.types.ContractLog.event_arguments">event_arguments (ape.types.ContractLog attribute)</a>
-</li>
   </ul></td>
   <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="methoddocs/types.html#ape.types.ContractLog.event_arguments">event_arguments (ape.types.ContractLog attribute)</a>
+</li>
       <li><a href="methoddocs/api.html#ape.api.projects.DependencyAPI.exclude">exclude (ape.api.projects.DependencyAPI attribute)</a>
 </li>
       <li><a href="methoddocs/cli.html#ape.cli.arguments.existing_alias_argument">existing_alias_argument() (in module ape.cli.arguments)</a>
@@ -2063,8 +2079,6 @@
       <li><a href="methoddocs/managers.html#ape.managers.project.manager.ProjectManager.tests_folder">tests_folder (ape.managers.project.manager.ProjectManager property)</a>
 </li>
       <li><a href="methoddocs/managers.html#ape.managers.converters.TimestampConverter">TimestampConverter (class in ape.managers.converters)</a>
-</li>
-      <li><a href="methoddocs/utils.html#ape.utils.to_address">to_address() (in module ape.utils)</a>
 </li>
       <li><a href="methoddocs/types.html#ape.types.ContractLog.transaction_hash">transaction_hash (ape.types.ContractLog attribute)</a>
 </li>
