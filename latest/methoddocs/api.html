@@ -1087,6 +1087,24 @@ translating into <code class="docutils literal notranslate"><span class="pre">ya
 </dl>
 </dd></dl>
 
+<dl class="py method">
+<dt class="sig sig-object py" id="ape.api.networks.EcosystemAPI.get_proxy_info">
+<span class="sig-name descname"><span class="pre">get_proxy_info</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">address</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">ChecksumAddress</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#ape.api.networks.ProxyInfoAPI" title="ape.api.networks.ProxyInfoAPI"><span class="pre">ape.api.networks.ProxyInfoAPI</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#ape.api.networks.EcosystemAPI.get_proxy_info" title="Permalink to this definition"></a></dt>
+<dd><p>Information about a proxy contract such as proxy type and implementation address.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>address</strong> (<em>str</em>) – The address of the contract.</p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>Returns <code class="docutils literal notranslate"><span class="pre">None</span></code> if the contract
+does not use any known proxy pattern.</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>Optional[<a class="reference internal" href="#ape.api.networks.ProxyInfoAPI" title="ape.api.networks.ProxyInfoAPI"><code class="xref py py-class docutils literal notranslate"><span class="pre">ProxyInfoAPI</span></code></a>]</p>
+</dd>
+</dl>
+</dd></dl>
+
 <dl class="py attribute">
 <dt class="sig sig-object py" id="ape.api.networks.EcosystemAPI.name">
 <span class="sig-name descname"><span class="pre">name</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></em><a class="headerlink" href="#ape.api.networks.EcosystemAPI.name" title="Permalink to this definition"></a></dt>
@@ -1377,6 +1395,24 @@ an instance of this context manager.</p>
     <span class="o">...</span>
 </pre></div>
 </div>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="ape.api.networks.ProxyInfoAPI">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">ape.api.networks.</span></span><span class="sig-name descname"><span class="pre">ProxyInfoAPI</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">ChecksumAddress</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ape.api.networks.ProxyInfoAPI" title="Permalink to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">pydantic.main.BaseModel</span></code></p>
+<p>Information about a proxy contract.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="ape.api.networks.ProxyInfoAPI.__hash__">
+<span class="sig-name descname"><span class="pre">__hash__</span></span><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></em><a class="headerlink" href="#ape.api.networks.ProxyInfoAPI.__hash__" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="ape.api.networks.ProxyInfoAPI.target">
+<span class="sig-name descname"><span class="pre">target</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">ChecksumAddress</span></em><a class="headerlink" href="#ape.api.networks.ProxyInfoAPI.target" title="Permalink to this definition"></a></dt>
+<dd><p>The address of the implementation contract.</p>
+</dd></dl>
+
 </dd></dl>
 
 <dl class="py function">
@@ -2243,8 +2279,7 @@ of transactions made by <code class="docutils literal notranslate"><span class="
 <dd><p>Validates fields that are called during a block query.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Returns</dt>
-<dd class="field-odd"><p>list of columns to be returned in pandas
-dataframes during block query.</p>
+<dd class="field-odd"><p>list of keys to be returned during block query.</p>
 </dd>
 <dt class="field-even">Return type</dt>
 <dd class="field-even"><p>List[str]</p>
@@ -2271,8 +2306,7 @@ blocks between <code class="docutils literal notranslate"><span class="pre">star
 <dd><p>Validates fields that are called during a block query.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Returns</dt>
-<dd class="field-odd"><p>list of columns to be returned in pandas
-dataframes during block query.</p>
+<dd class="field-odd"><p>list of keys to be returned during block query.</p>
 </dd>
 <dt class="field-even">Return type</dt>
 <dd class="field-even"><p>List[str]</p>
@@ -2299,8 +2333,7 @@ logs emitted by <code class="docutils literal notranslate"><span class="pre">con
 <dd><p>Validates fields that are called during a block query.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Returns</dt>
-<dd class="field-odd"><p>list of columns to be returned in pandas
-dataframes during block query.</p>
+<dd class="field-odd"><p>list of keys to be returned during block query.</p>
 </dd>
 <dt class="field-even">Return type</dt>
 <dd class="field-even"><p>List[str]</p>
@@ -2327,8 +2360,7 @@ over a range of blocks between <code class="docutils literal notranslate"><span 
 <dd><p>Validates fields that are called during a block query.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Returns</dt>
-<dd class="field-odd"><p>list of columns to be returned in pandas
-dataframes during block query.</p>
+<dd class="field-odd"><p>list of keys to be returned during block query.</p>
 </dd>
 <dt class="field-even">Return type</dt>
 <dd class="field-even"><p>List[str]</p>
@@ -2368,28 +2400,28 @@ query engine is not available for use or is unable to complete the query.</p>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="ape.api.query.QueryAPI.perform_query">
-<em class="property"><span class="pre">abstract</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">perform_query</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">query</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Union</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#ape.api.query.BlockQuery" title="ape.api.query.BlockQuery"><span class="pre">ape.api.query.BlockQuery</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="#ape.api.query.AccountQuery" title="ape.api.query.AccountQuery"><span class="pre">ape.api.query.AccountQuery</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="#ape.api.query.ContractEventQuery" title="ape.api.query.ContractEventQuery"><span class="pre">ape.api.query.ContractEventQuery</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="#ape.api.query.ContractMethodQuery" title="ape.api.query.ContractMethodQuery"><span class="pre">ape.api.query.ContractMethodQuery</span></a><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">pandas.core.frame.DataFrame</span></span></span><a class="headerlink" href="#ape.api.query.QueryAPI.perform_query" title="Permalink to this definition"></a></dt>
+<em class="property"><span class="pre">abstract</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">perform_query</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">query</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Union</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#ape.api.query.BlockQuery" title="ape.api.query.BlockQuery"><span class="pre">ape.api.query.BlockQuery</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="#ape.api.query.AccountQuery" title="ape.api.query.AccountQuery"><span class="pre">ape.api.query.AccountQuery</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="#ape.api.query.ContractEventQuery" title="ape.api.query.ContractEventQuery"><span class="pre">ape.api.query.ContractEventQuery</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="#ape.api.query.ContractMethodQuery" title="ape.api.query.ContractMethodQuery"><span class="pre">ape.api.query.ContractMethodQuery</span></a><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Iterator</span></span></span><a class="headerlink" href="#ape.api.query.QueryAPI.perform_query" title="Permalink to this definition"></a></dt>
 <dd><p>Executes the query using best performing <code class="docutils literal notranslate"><span class="pre">estimate_query</span></code> query engine.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><p><strong>query</strong> (<code class="docutils literal notranslate"><span class="pre">QueryType</span></code>) – query to execute</p>
 </dd>
 <dt class="field-even">Returns</dt>
-<dd class="field-even"><p>pandas.DataFrame</p>
+<dd class="field-even"><p>Iterator</p>
 </dd>
 </dl>
 </dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="ape.api.query.QueryAPI.update_cache">
-<span class="sig-name descname"><span class="pre">update_cache</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">query</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Union</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#ape.api.query.BlockQuery" title="ape.api.query.BlockQuery"><span class="pre">ape.api.query.BlockQuery</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="#ape.api.query.AccountQuery" title="ape.api.query.AccountQuery"><span class="pre">ape.api.query.AccountQuery</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="#ape.api.query.ContractEventQuery" title="ape.api.query.ContractEventQuery"><span class="pre">ape.api.query.ContractEventQuery</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="#ape.api.query.ContractMethodQuery" title="ape.api.query.ContractMethodQuery"><span class="pre">ape.api.query.ContractMethodQuery</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">result</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">pandas.core.frame.DataFrame</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ape.api.query.QueryAPI.update_cache" title="Permalink to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">update_cache</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">query</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Union</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="#ape.api.query.BlockQuery" title="ape.api.query.BlockQuery"><span class="pre">ape.api.query.BlockQuery</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="#ape.api.query.AccountQuery" title="ape.api.query.AccountQuery"><span class="pre">ape.api.query.AccountQuery</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="#ape.api.query.ContractEventQuery" title="ape.api.query.ContractEventQuery"><span class="pre">ape.api.query.ContractEventQuery</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="#ape.api.query.ContractMethodQuery" title="ape.api.query.ContractMethodQuery"><span class="pre">ape.api.query.ContractMethodQuery</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">result</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Iterator</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ape.api.query.QueryAPI.update_cache" title="Permalink to this definition"></a></dt>
 <dd><p>Allows a query plugin the chance to update any cache using the results obtained
 from other query plugins. Defaults to doing nothing, override to store cache data.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>query</strong> (<code class="docutils literal notranslate"><span class="pre">QueryType</span></code>) – query that was executed</p></li>
-<li><p><strong>result</strong> (<code class="docutils literal notranslate"><span class="pre">pandas.DataFrame</span></code>) – the result of the query</p></li>
+<li><p><strong>result</strong> (<code class="docutils literal notranslate"><span class="pre">Iterator</span></code>) – the result of the query</p></li>
 </ul>
 </dd>
 </dl>
