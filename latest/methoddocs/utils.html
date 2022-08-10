@@ -60,13 +60,17 @@
               <p class="caption" role="heading"><span class="caption-text">User Guides</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../userguides/quickstart.html">Quick Start</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../userguides/installing_plugins.html">Plugins</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../userguides/projects.html">Developing Projects with Ape</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../userguides/plugins.html">Developing Plugins</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../userguides/compile.html">Compile</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../userguides/networks.html">Networks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../userguides/developing_plugins.html">Developing Plugins</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../userguides/config.html">Configure Ape</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../userguides/transactions.html">Making Transactions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../userguides/console.html">Ape Console</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../userguides/contracts.html">Contracts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../userguides/testing.html">Testing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../userguides/scripts.html">Scripting</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">CLI Reference</span></p>
 <ul>
@@ -153,7 +157,7 @@
 <p>A class for parsing a call trace, used in the
 <code class="xref py py-meth docutils literal notranslate"><span class="pre">show_trace()</span></code> method,
 which uses the response from
-<a href="#id1"><span class="problematic" id="id2">:method:`~ape.api.providers.ProviderAPI.get_call_trace`</span></a> and the
+<code class="xref py py-meth docutils literal notranslate"><span class="pre">get_call_trace()</span></code> and the
 <code class="docutils literal notranslate"><span class="pre">evm-trace</span></code> Python package.</p>
 <p>Usage example:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">tree_factory</span> <span class="o">=</span> <span class="n">CallTraceParser</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">verbose</span><span class="o">=</span><span class="n">verbose</span><span class="p">)</span>
@@ -307,6 +311,24 @@ to get the latest release.</p></li>
 <dd class="field-even"><p>github.Repository.Repository</p>
 </dd>
 </dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="ape.utils.JoinableQueue">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">ape.utils.</span></span><span class="sig-name descname"><span class="pre">JoinableQueue</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">maxsize</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ape.utils.JoinableQueue" title="Permalink to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">queue.Queue</span></code></p>
+<p>A queue that can be joined, useful for multi-processing.
+Borrowed from the <code class="docutils literal notranslate"><span class="pre">py-geth</span></code> library.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="ape.utils.JoinableQueue.join">
+<span class="sig-name descname"><span class="pre">join</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">timeout</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ape.utils.JoinableQueue.join" title="Permalink to this definition"></a></dt>
+<dd><p>Blocks until all items in the Queue have been gotten and processed.</p>
+<p>The count of unfinished tasks goes up whenever an item is added to the
+queue. The count goes down whenever a consumer thread calls task_done()
+to indicate the item was retrieved and all work on it is complete.</p>
+<p>When the count of unfinished tasks drops to zero, join() unblocks.</p>
 </dd></dl>
 
 </dd></dl>
@@ -667,6 +689,27 @@ and is able to be load.</p></li>
 </dl>
 </dd></dl>
 
+<dl class="py function">
+<dt class="sig sig-object py" id="ape.utils.run_until_complete">
+<span class="sig-prename descclassname"><span class="pre">ape.utils.</span></span><span class="sig-name descname"><span class="pre">run_until_complete</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">item</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Any</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Any</span></span></span><a class="headerlink" href="#ape.utils.run_until_complete" title="Permalink to this definition"></a></dt>
+<dd><p>Completes the given coroutine and returns its value.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>item</strong> (<em>Any</em>) – A return value from a potentially async method.</p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p><dl class="simple">
+<dt>The value that results in awaiting the coroutine.</dt><dd><p>Else, <code class="docutils literal notranslate"><span class="pre">item</span></code> if <code class="docutils literal notranslate"><span class="pre">item</span></code> is not a coroutine.</p>
+</dd>
+</dl>
+</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>(Any)</p>
+</dd>
+</dl>
+</dd></dl>
+
 <dl class="py class">
 <dt class="sig sig-object py" id="ape.utils.singledispatchmethod">
 <em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">ape.utils.</span></span><span class="sig-name descname"><span class="pre">singledispatchmethod</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">func</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ape.utils.singledispatchmethod" title="Permalink to this definition"></a></dt>
@@ -680,6 +723,12 @@ callables as instance methods.</p>
 <dd><p>Registers a new implementation for the given <em>cls</em> on a <em>generic_method</em>.</p>
 </dd></dl>
 
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="ape.utils.spawn">
+<span class="sig-prename descclassname"><span class="pre">ape.utils.</span></span><span class="sig-name descname"><span class="pre">spawn</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">target</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ape.utils.spawn" title="Permalink to this definition"></a></dt>
+<dd><p>Spawn a new daemon thread. Borrowed from the <code class="docutils literal notranslate"><span class="pre">py-geth</span></code> library.</p>
 </dd></dl>
 
 <dl class="py function">

@@ -61,13 +61,17 @@
               <p class="caption" role="heading"><span class="caption-text">User Guides</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../userguides/quickstart.html">Quick Start</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../userguides/installing_plugins.html">Plugins</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../userguides/projects.html">Developing Projects with Ape</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../userguides/plugins.html">Developing Plugins</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../userguides/compile.html">Compile</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../userguides/networks.html">Networks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../userguides/developing_plugins.html">Developing Plugins</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../userguides/config.html">Configure Ape</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../userguides/transactions.html">Making Transactions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../userguides/console.html">Ape Console</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../userguides/contracts.html">Contracts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../userguides/testing.html">Testing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../userguides/scripts.html">Scripting</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">CLI Reference</span></p>
 <ul>
@@ -122,7 +126,7 @@
 <h1>ape.contracts<a class="headerlink" href="#ape-contracts" title="Permalink to this headline"></a></h1>
 <dl class="py class">
 <dt class="sig sig-object py" id="ape.contracts.base.ContractInstance">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">ape.contracts.base.</span></span><span class="sig-name descname"><span class="pre">ContractInstance</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">address</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">ChecksumAddress</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">contract_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">ethpm_types.contract_type.ContractType</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ape.contracts.base.ContractInstance" title="Permalink to this definition"></a></dt>
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">ape.contracts.base.</span></span><span class="sig-name descname"><span class="pre">ContractInstance</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">address</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Union</span><span class="p"><span class="pre">[</span></span><span class="pre">ChecksumAddress</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">contract_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">ethpm_types.contract_type.ContractType</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">txn_hash</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ape.contracts.base.ContractInstance" title="Permalink to this definition"></a></dt>
 <dd><p>Bases: <a class="reference internal" href="api.html#ape.api.address.BaseAddress" title="ape.api.address.BaseAddress"><code class="xref py py-class docutils literal notranslate"><span class="pre">ape.api.address.BaseAddress</span></code></a></p>
 <p>An interactive instance of a smart contract.
 After you deploy a contract using the <a class="reference internal" href="api.html#ape.api.accounts.AccountAPI.deploy" title="ape.api.accounts.AccountAPI.deploy"><code class="xref py py-class docutils literal notranslate"><span class="pre">deploy</span></code></a> method,
@@ -196,6 +200,13 @@ you can use this method to access the respective events.</p>
 </dl>
 </dd></dl>
 
+<dl class="py property">
+<dt class="sig sig-object py" id="ape.contracts.base.ContractInstance.receipt">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">receipt</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#ape.api.transactions.ReceiptAPI" title="ape.api.transactions.ReceiptAPI"><span class="pre">ape.api.transactions.ReceiptAPI</span></a><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#ape.contracts.base.ContractInstance.receipt" title="Permalink to this definition"></a></dt>
+<dd><p>The receipt associated with deploying the contract instance,
+if it is known and exists.</p>
+</dd></dl>
+
 </dd></dl>
 
 <dl class="py class">
@@ -213,7 +224,7 @@ are using this class.</p>
 </div>
 <dl class="py method">
 <dt class="sig sig-object py" id="ape.contracts.base.ContractContainer.at">
-<span class="sig-name descname"><span class="pre">at</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">address</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#ape.contracts.base.ContractInstance" title="ape.contracts.base.ContractInstance"><span class="pre">ape.contracts.base.ContractInstance</span></a></span></span><a class="headerlink" href="#ape.contracts.base.ContractContainer.at" title="Permalink to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">at</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">address</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">ChecksumAddress</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">txn_hash</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#ape.contracts.base.ContractInstance" title="ape.contracts.base.ContractInstance"><span class="pre">ape.contracts.base.ContractInstance</span></a></span></span><a class="headerlink" href="#ape.contracts.base.ContractContainer.at" title="Permalink to this definition"></a></dt>
 <dd><p>Get a contract at the given address.</p>
 <p>Usage example:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">ape</span> <span class="kn">import</span> <span class="n">project</span>
@@ -223,15 +234,30 @@ are using this class.</p>
 </div>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
-<dd class="field-odd"><p><strong>address</strong> (<em>str</em>) – The address to initialize a contract.
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>address</strong> (<em>str</em>) – The address to initialize a contract.
 <strong>NOTE</strong>: Things will not work as expected if the contract is not actually
 deployed to this address or if the contract at the given address has
-a different ABI than <code class="xref py py-attr docutils literal notranslate"><span class="pre">contract_type</span></code>.</p>
+a different ABI than <code class="xref py py-attr docutils literal notranslate"><span class="pre">contract_type</span></code>.</p></li>
+<li><p><strong>txn_hash</strong> (<em>str</em>) – The hash of the transaction that deployed the contract, if
+available. Defaults to <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p></li>
+</ul>
 </dd>
 <dt class="field-even">Returns</dt>
 <dd class="field-even"><p><code class="xref py py-class docutils literal notranslate"><span class="pre">ContractInstance</span></code></p>
 </dd>
 </dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="ape.contracts.base.ContractContainer.deployments">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">deployments</span></span><a class="headerlink" href="#ape.contracts.base.ContractContainer.deployments" title="Permalink to this definition"></a></dt>
+<dd><p>Contract deployments.</p>
+<p>Usage example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># Get the latest deployment</span>
+<span class="n">my_contract</span> <span class="o">=</span> <span class="n">project</span><span class="o">.</span><span class="n">MyContract</span><span class="o">.</span><span class="n">deployments</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+</pre></div>
+</div>
 </dd></dl>
 
 </dd></dl>
@@ -275,7 +301,7 @@ Use the event types via <code class="docutils literal notranslate"><span class="
 
 <dl class="py method">
 <dt class="sig sig-object py" id="ape.contracts.base.ContractEvent.poll_logs">
-<span class="sig-name descname"><span class="pre">poll_logs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">start_block</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stop_block</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">required_confirmations</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Iterator</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="types.html#ape.types.ContractLog" title="ape.types.ContractLog"><span class="pre">ape.types.ContractLog</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#ape.contracts.base.ContractEvent.poll_logs" title="Permalink to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">poll_logs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">start_block</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stop_block</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">required_confirmations</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">new_block_timeout</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Iterator</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="types.html#ape.types.ContractLog" title="ape.types.ContractLog"><span class="pre">ape.types.ContractLog</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#ape.contracts.base.ContractEvent.poll_logs" title="Permalink to this definition"></a></dt>
 <dd><p>Poll new blocks. Optionally set a start block to include historical blocks.
 <strong>NOTE</strong>: This is a daemon method; it does not terminate unless an exception occurrs.</p>
 <p>Usage example:</p>
@@ -295,6 +321,9 @@ Defaults to never-ending.</p></li>
 <li><p><strong>required_confirmations</strong> (<em>Optional</em><em>[</em><em>int</em><em>]</em>) – The amount of confirmations to wait
 before yielding the block. The more confirmations, the less likely a reorg will occur.
 Defaults to the network’s configured required confirmations.</p></li>
+<li><p><strong>new_block_timeout</strong> (<em>Optional</em><em>[</em><em>int</em><em>]</em>) – The amount of time to wait for a new block before
+quitting. Defaults to 10 seconds for local networks or <code class="docutils literal notranslate"><span class="pre">50</span> <span class="pre">*</span> <span class="pre">block_time</span></code> for live
+networks.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns</dt>
@@ -304,8 +333,32 @@ Defaults to the network’s configured required confirmations.</p></li>
 </dd></dl>
 
 <dl class="py method">
+<dt class="sig sig-object py" id="ape.contracts.base.ContractEvent.query">
+<span class="sig-name descname"><span class="pre">query</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">columns</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">List</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">start_block</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stop_block</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">step</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">engine_to_use</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">pandas.core.frame.DataFrame</span></span></span><a class="headerlink" href="#ape.contracts.base.ContractEvent.query" title="Permalink to this definition"></a></dt>
+<dd><p>Iterate through blocks for log events</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>columns</strong> (<em>List</em><em>[</em><em>str</em><em>]</em>) – columns in the DataFrame to return</p></li>
+<li><p><strong>start_block</strong> (<em>int</em>) – The first block, by number, to include in the
+query. Defaults to 0.</p></li>
+<li><p><strong>stop_block</strong> (<em>Optional</em><em>[</em><em>int</em><em>]</em>) – The last block, by number, to include
+in the query. Defaults to the latest block.</p></li>
+<li><p><strong>step</strong> (<em>int</em>) – The number of blocks to iterate between block numbers.
+Defaults to <code class="docutils literal notranslate"><span class="pre">1</span></code>.</p></li>
+<li><p><strong>engine_to_use</strong> (<em>Optional</em><em>[</em><em>str</em><em>]</em>) – query engine to use, bypasses query
+engine selection algorithm.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>pd.DataFrame</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
 <dt class="sig sig-object py" id="ape.contracts.base.ContractEvent.range">
-<span class="sig-name descname"><span class="pre">range</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">start_or_stop</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stop</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">block_page_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">event_parameters</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">Dict</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Iterator</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="types.html#ape.types.ContractLog" title="ape.types.ContractLog"><span class="pre">ape.types.ContractLog</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#ape.contracts.base.ContractEvent.range" title="Permalink to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">range</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">start_or_stop</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stop</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">search_topics</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">Dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">extra_addresses</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">List</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Iterator</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="types.html#ape.types.ContractLog" title="ape.types.ContractLog"><span class="pre">ape.types.ContractLog</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#ape.contracts.base.ContractEvent.range" title="Permalink to this definition"></a></dt>
 <dd><p>Search through the logs for this event using the given filter parameters.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
@@ -315,10 +368,11 @@ earliest block number in the desired log set.
 Otherwise, it is the total amount of blocks to get starting from <code class="docutils literal notranslate"><span class="pre">0</span></code>.</p></li>
 <li><p><strong>stop</strong> (<em>Optional</em><em>[</em><em>int</em><em>]</em>) – The latest block number in the
 desired log set. Defaults to delegating to provider.</p></li>
-<li><p><strong>block_page_size</strong> (<em>Optional</em><em>[</em><em>int</em><em>]</em>) – The amount of block to request
-on each page.</p></li>
-<li><p><strong>event_parameters</strong> (<em>Optional</em><em>[</em><em>Dict</em><em>]</em>) – Arguments on the event that you can
-search for.</p></li>
+<li><p><strong>search_topics</strong> (<em>Optional</em><em>[</em><em>Dict</em><em>]</em>) – Search topics, such as indexed event inputs,
+to query by. Defaults to getting all events.</p></li>
+<li><p><strong>extra_addresses</strong> (Optional[List[<code class="docutils literal notranslate"><span class="pre">AddressType</span></code>]]) – Additional contract
+addresses containing the same event type. Defaults to only looking at
+the contract instance where this event is defined.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns</dt>

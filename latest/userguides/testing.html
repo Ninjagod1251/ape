@@ -28,7 +28,7 @@
   </script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="accounts" href="../commands/accounts.html" />
+    <link rel="next" title="Scripting" href="scripts.html" />
     <link rel="prev" title="Contracts" href="contracts.html" /> 
 </head>
 
@@ -61,8 +61,11 @@
               <p class="caption" role="heading"><span class="caption-text">User Guides</span></p>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start</a></li>
+<li class="toctree-l1"><a class="reference internal" href="installing_plugins.html">Plugins</a></li>
 <li class="toctree-l1"><a class="reference internal" href="projects.html">Developing Projects with Ape</a></li>
-<li class="toctree-l1"><a class="reference internal" href="plugins.html">Developing Plugins</a></li>
+<li class="toctree-l1"><a class="reference internal" href="compile.html">Compile</a></li>
+<li class="toctree-l1"><a class="reference internal" href="networks.html">Networks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="developing_plugins.html">Developing Plugins</a></li>
 <li class="toctree-l1"><a class="reference internal" href="config.html">Configure Ape</a></li>
 <li class="toctree-l1"><a class="reference internal" href="transactions.html">Making Transactions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="console.html">Ape Console</a></li>
@@ -72,14 +75,18 @@
 <li class="toctree-l2"><a class="reference internal" href="#test-pattern">Test Pattern</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#fixtures">Fixtures</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#accounts-fixture">accounts fixture</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#chain-fixture">chain fixture</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#networks-fixture">networks fixture</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#project-fixture">project fixture</a></li>
 </ul>
 </li>
 <li class="toctree-l2"><a class="reference internal" href="#ape-testing-commands">Ape testing commands</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#test-providers">Test Providers</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#advanced-testing-tips">Advanced Testing Tips</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#multi-chain-testing">Multi-chain Testing</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="scripts.html">Scripting</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">CLI Reference</span></p>
 <ul>
@@ -152,15 +159,16 @@ is an example test:</p>
 <li><p>Assertion</p></li>
 </ol>
 <p>In the example above, we created a fixture that deploys our smart-contract. This is an example of a ‘setup’ phase.
-Next, we need to call a method on our contract. Let’s assume there is a method called <code class="docutils literal notranslate"><span class="pre">is_owner()</span></code> that returns <code class="docutils literal notranslate"><span class="pre">True</span></code>
-when it is the owner of the contract making the transaction.</p>
+Next, we need to call a method on our contract. Let’s assume there is an <code class="docutils literal notranslate"><span class="pre">authorized_method()</span></code> that requires the
+owner of the contract to make the transaction. If the sender of the transaction is not the owner, the transaction
+will fail to complete and will revert.</p>
 <p>This is an example of how that test may look:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">test_is_owner</span><span class="p">(</span><span class="n">my_contract</span><span class="p">,</span> <span class="n">owner</span><span class="p">,</span> <span class="n">other</span><span class="p">):</span>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">test_authorization</span><span class="p">(</span><span class="n">my_contract</span><span class="p">,</span> <span class="n">owner</span><span class="p">,</span> <span class="n">not_owner</span><span class="p">):</span>
     <span class="n">my_contract</span><span class="o">.</span><span class="n">set_owner</span><span class="p">(</span><span class="n">sender</span><span class="o">=</span><span class="n">owner</span><span class="p">)</span>
     <span class="k">assert</span> <span class="n">owner</span> <span class="o">==</span> <span class="n">my_contract</span><span class="o">.</span><span class="n">owner</span><span class="p">()</span>
 
-    <span class="n">other_is_owner</span> <span class="o">=</span> <span class="n">my_contract</span><span class="o">.</span><span class="n">foo</span><span class="p">(</span><span class="n">sender</span><span class="o">=</span><span class="n">other</span><span class="p">)</span>
-    <span class="k">assert</span> <span class="ow">not</span> <span class="n">other_is_owner</span>
+    <span class="k">with</span> <span class="n">ape</span><span class="o">.</span><span class="n">reverts</span><span class="p">(</span><span class="s2">&quot;!authorized&quot;</span><span class="p">):</span>
+        <span class="n">my_contract</span><span class="o">.</span><span class="n">authorized_method</span><span class="p">(</span><span class="n">sender</span><span class="o">=</span><span class="n">not_owner</span><span class="p">)</span>
 </pre></div>
 </div>
 <div class="admonition note">
@@ -185,7 +193,7 @@ tests. Access each <a class="reference external" href="../methoddocs/api.html?hi
 index from the <code class="docutils literal notranslate"><span class="pre">accounts</span></code> fixture:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">test_my_method</span><span class="p">(</span><span class="n">accounts</span><span class="p">):</span>
     <span class="n">owner</span> <span class="o">=</span> <span class="n">accounts</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
-    <span class="n">other</span> <span class="o">=</span> <span class="n">accounts</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+    <span class="n">receiver</span> <span class="o">=</span> <span class="n">accounts</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
 </pre></div>
 </div>
 <p>For code readability and sustainability, create your own fixtures using the <code class="docutils literal notranslate"><span class="pre">accounts</span></code> fixture:</p>
@@ -198,11 +206,11 @@ index from the <code class="docutils literal notranslate"><span class="pre">acco
 
 
 <span class="nd">@pytest</span><span class="o">.</span><span class="n">fixture</span>
-<span class="k">def</span> <span class="nf">other</span><span class="p">(</span><span class="n">accounts</span><span class="p">):</span>
+<span class="k">def</span> <span class="nf">receiver</span><span class="p">(</span><span class="n">accounts</span><span class="p">):</span>
     <span class="k">return</span> <span class="n">accounts</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
 
 
-<span class="k">def</span> <span class="nf">test_my_method</span><span class="p">(</span><span class="n">owner</span><span class="p">,</span> <span class="n">other</span><span class="p">):</span>
+<span class="k">def</span> <span class="nf">test_my_method</span><span class="p">(</span><span class="n">owner</span><span class="p">,</span> <span class="n">receiver</span><span class="p">):</span>
     <span class="o">...</span>
 </pre></div>
 </div>
@@ -226,6 +234,34 @@ your <code class="docutils literal notranslate"><span class="pre">ape-config.yam
     <span class="n">contract</span><span class="o">.</span><span class="n">my_method</span><span class="p">(</span><span class="n">sender</span><span class="o">=</span><span class="n">other_contract</span><span class="p">)</span>
 </pre></div>
 </div>
+<p>It has the same interface as the <a class="reference external" href="../methoddocs/managers.html#ape.managers.accounts.TestAccountManager">TestAccountManager</a>,
+(same as doing <code class="docutils literal notranslate"><span class="pre">accounts.test_accounts</span></code> in a script or the console).</p>
+</section>
+<section id="chain-fixture">
+<h3>chain fixture<a class="headerlink" href="#chain-fixture" title="Permalink to this headline"></a></h3>
+<p>Use the chain fixture to access the connected provider or adjust blockchain settings.</p>
+<p>For example, increase the pending timestamp:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">test_in_future</span><span class="p">(</span><span class="n">chain</span><span class="p">):</span>
+    <span class="n">chain</span><span class="o">.</span><span class="n">pending_timestamp</span> <span class="o">+=</span> <span class="mi">86000</span>
+    <span class="k">assert</span> <span class="s2">&quot;Something&quot;</span>
+    <span class="n">chain</span><span class="o">.</span><span class="n">pending_timestamp</span> <span class="o">+=</span> <span class="mi">86000</span>
+    <span class="k">assert</span> <span class="s2">&quot;Something else&quot;</span>
+</pre></div>
+</div>
+<p>It has the same interface as the <a class="reference external" href="../methoddocs/managers.html#ape.managers.chain.ChainManager">ChainManager</a>.</p>
+</section>
+<section id="networks-fixture">
+<h3>networks fixture<a class="headerlink" href="#networks-fixture" title="Permalink to this headline"></a></h3>
+<p>Use the <code class="docutils literal notranslate"><span class="pre">networks</span></code> fixture to change the active provider in tests.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">test_multi_chain</span><span class="p">(</span><span class="n">networks</span><span class="p">):</span>
+    <span class="k">assert</span> <span class="s2">&quot;Something&quot;</span>  <span class="c1"># Make assertion in root network</span>
+    
+    <span class="c1"># NOTE: Assume have ecosystem named &quot;foo&quot; with network &quot;local&quot; and provider &quot;bar&quot;</span>
+    <span class="k">with</span> <span class="n">networks</span><span class="o">.</span><span class="n">foo</span><span class="o">.</span><span class="n">local</span><span class="o">.</span><span class="n">use_provider</span><span class="p">(</span><span class="s2">&quot;bar&quot;</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="s2">&quot;Something else&quot;</span>
+</pre></div>
+</div>
+<p>It has the same interface as the <a class="reference external" href="../methoddocs/managers.html#ape.managers.networks.NetworkManager">NetworkManager</a>.</p>
 </section>
 <section id="project-fixture">
 <h3>project fixture<a class="headerlink" href="#project-fixture" title="Permalink to this headline"></a></h3>
@@ -240,10 +276,11 @@ your <code class="docutils literal notranslate"><span class="pre">ape-config.yam
 
 <span class="nd">@pytest</span><span class="o">.</span><span class="n">fixture</span>
 <span class="k">def</span> <span class="nf">my_contract</span><span class="p">(</span><span class="n">project</span><span class="p">,</span> <span class="n">owner</span><span class="p">):</span>
-    <span class="c1"># ^ use the &#39;project&#39; fixture from the &#39;ape-test&#39; plugin</span>
+    <span class="c1">#           ^ use the &#39;project&#39; fixture from the &#39;ape-test&#39; plugin</span>
     <span class="k">return</span> <span class="n">owner</span><span class="o">.</span><span class="n">deploy</span><span class="p">(</span><span class="n">project</span><span class="o">.</span><span class="n">MyContract</span><span class="p">)</span>
 </pre></div>
 </div>
+<p>It has the same interface as the <a class="reference external" href="../methoddocs/managers.html#module-ape.managers.project.manager">ProjectManager</a>.</p>
 </section>
 </section>
 <section id="ape-testing-commands">
@@ -285,16 +322,53 @@ manually installing it using the command:</p>
     └── test_mint.py        # A test file
 </pre></div>
 </div>
-<p>Here is a sample of test function from a sample <a class="reference external" href="https://github.com/ApeAcademy/generative-nft">NFT</a></p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">test_account_balance</span><span class="p">(</span><span class="n">owner</span><span class="p">,</span> <span class="n">receiver</span><span class="p">,</span> <span class="n">buyers</span><span class="p">,</span> <span class="n">nft</span><span class="p">)):</span>
-    <span class="c1"># ^ use the &#39;project&#39; fixture from the &#39;ape-test&#39; plugin</span>
+<p>Here is an example of a test function from a sample <a class="reference external" href="https://github.com/ApeAcademy/ERC721">NFT project</a></p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span> <span class="nf">test_account_balance</span><span class="p">(</span><span class="n">project</span><span class="p">,</span> <span class="n">owner</span><span class="p">,</span> <span class="n">receiver</span><span class="p">,</span> <span class="n">nft</span><span class="p">):</span>
     <span class="n">quantity</span> <span class="o">=</span> <span class="mi">1</span>
-    <span class="n">nft</span><span class="o">.</span><span class="n">mint</span><span class="p">(</span><span class="n">quantity</span><span class="p">,</span> <span class="p">[</span><span class="s2">&quot;0&quot;</span><span class="p">],</span> <span class="n">value</span><span class="o">=</span><span class="n">nft</span><span class="o">.</span><span class="n">PRICE</span><span class="p">()</span> <span class="o">*</span> <span class="n">quantity</span><span class="p">,</span> <span class="n">sender</span><span class="o">=</span><span class="n">receiver</span><span class="p">)</span>
-    <span class="n">actual</span> <span class="o">=</span> <span class="n">project</span><span class="o">.</span><span class="n">balanceOf</span><span class="p">(</span><span class="n">owner</span><span class="p">)</span>
+    <span class="n">nft</span><span class="o">.</span><span class="n">mint</span><span class="p">(</span><span class="n">receiver</span><span class="p">,</span> <span class="n">quantity</span><span class="p">,</span> <span class="p">[</span><span class="s2">&quot;0&quot;</span><span class="p">],</span> <span class="n">value</span><span class="o">=</span><span class="n">nft</span><span class="o">.</span><span class="n">PRICE</span><span class="p">()</span> <span class="o">*</span> <span class="n">quantity</span><span class="p">,</span> <span class="n">sender</span><span class="o">=</span><span class="n">owner</span><span class="p">)</span>
+    <span class="n">actual</span> <span class="o">=</span> <span class="n">project</span><span class="o">.</span><span class="n">balanceOf</span><span class="p">(</span><span class="n">receiver</span><span class="p">)</span>
     <span class="n">expect</span> <span class="o">=</span> <span class="n">quantity</span>
     <span class="k">assert</span> <span class="n">actual</span> <span class="o">==</span> <span class="n">expect</span>
 </pre></div>
 </div>
+</section>
+<section id="multi-chain-testing">
+<h2>Multi-chain Testing<a class="headerlink" href="#multi-chain-testing" title="Permalink to this headline"></a></h2>
+<p>The Ape framework supports connecting to alternative providers in tests.
+The easiest way to achieve this is to use the <code class="docutils literal notranslate"><span class="pre">networks</span></code> provider context-manager.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># Switch to Fantom mid test</span>
+<span class="k">def</span> <span class="nf">test_my_fantom_test</span><span class="p">(</span><span class="n">networks</span><span class="p">):</span>
+    <span class="c1"># The test starts in 1 ecosystem but switches to another</span>
+    <span class="k">assert</span> <span class="n">networks</span><span class="o">.</span><span class="n">provider</span><span class="o">.</span><span class="n">network</span><span class="o">.</span><span class="n">ecosystem</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s2">&quot;ethereum&quot;</span>
+    
+    <span class="k">with</span> <span class="n">networks</span><span class="o">.</span><span class="n">fantom</span><span class="o">.</span><span class="n">local</span><span class="o">.</span><span class="n">use_provider</span><span class="p">(</span><span class="s2">&quot;test&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">provider</span><span class="p">:</span>
+        <span class="k">assert</span> <span class="n">provider</span><span class="o">.</span><span class="n">network</span><span class="o">.</span><span class="n">ecosystem</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s2">&quot;fantom&quot;</span>
+    
+    <span class="c1"># You can also use the context manager like this:</span>
+    <span class="k">with</span> <span class="n">networks</span><span class="o">.</span><span class="n">parse_network_choice</span><span class="p">(</span><span class="s2">&quot;fantom:local:test&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">provider</span><span class="p">:</span>
+       <span class="k">assert</span> <span class="n">provider</span><span class="o">.</span><span class="n">network</span><span class="o">.</span><span class="n">ecosystem</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s2">&quot;fantom&quot;</span>
+</pre></div>
+</div>
+<p>You can also set the network context in a context-manager pytest fixture:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">pytest</span>
+
+
+<span class="nd">@pytest</span><span class="o">.</span><span class="n">fixture</span>
+<span class="k">def</span> <span class="nf">stark_contract</span><span class="p">(</span><span class="n">networks</span><span class="p">,</span> <span class="n">project</span><span class="p">):</span>
+    <span class="k">with</span> <span class="n">networks</span><span class="o">.</span><span class="n">parse_network_choice</span><span class="p">(</span><span class="s2">&quot;starknet:local&quot;</span><span class="p">):</span>
+        <span class="k">yield</span> <span class="n">project</span><span class="o">.</span><span class="n">MyStarknetContract</span><span class="o">.</span><span class="n">deploy</span><span class="p">()</span>
+
+
+<span class="k">def</span> <span class="nf">test_starknet_thing</span><span class="p">(</span><span class="n">stark_contract</span><span class="p">,</span> <span class="n">stark_account</span><span class="p">):</span>
+    <span class="c1"># Uses the starknet connection via the stark_contract fixture</span>
+    <span class="n">receipt</span> <span class="o">=</span> <span class="n">stark_contract</span><span class="o">.</span><span class="n">my_method</span><span class="p">(</span><span class="n">sender</span><span class="o">=</span><span class="n">stark_account</span><span class="p">)</span>
+    <span class="k">assert</span> <span class="ow">not</span> <span class="n">receipt</span><span class="o">.</span><span class="n">failed</span>
+</pre></div>
+</div>
+<p>When you exit a provider’s context, Ape <strong>does not</strong> disconnect the provider.
+When you re-enter that provider’s context, Ape uses the previously-connected provider.
+At the end of the tests, Ape disconnects all the providers.
+Thus, you can enter and exit a provider’s context as much as you need in tests.</p>
 </section>
 </section>
 
@@ -303,7 +377,7 @@ manually installing it using the command:</p>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
         <a href="contracts.html" class="btn btn-neutral float-left" title="Contracts" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="../commands/accounts.html" class="btn btn-neutral float-right" title="accounts" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="scripts.html" class="btn btn-neutral float-right" title="Scripting" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>

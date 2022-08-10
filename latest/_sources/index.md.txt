@@ -6,13 +6,17 @@
    :maxdepth: 1
 
    userguides/quickstart
+   userguides/installing_plugins
    userguides/projects
-   userguides/plugins
+   userguides/compile
+   userguides/networks
+   userguides/developing_plugins
    userguides/config
    userguides/transactions
    userguides/console
    userguides/contracts
    userguides/testing
+   userguides/scripts   
    
 ```
 

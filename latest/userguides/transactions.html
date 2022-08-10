@@ -61,8 +61,11 @@
               <p class="caption" role="heading"><span class="caption-text">User Guides</span></p>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start</a></li>
+<li class="toctree-l1"><a class="reference internal" href="installing_plugins.html">Plugins</a></li>
 <li class="toctree-l1"><a class="reference internal" href="projects.html">Developing Projects with Ape</a></li>
-<li class="toctree-l1"><a class="reference internal" href="plugins.html">Developing Plugins</a></li>
+<li class="toctree-l1"><a class="reference internal" href="compile.html">Compile</a></li>
+<li class="toctree-l1"><a class="reference internal" href="networks.html">Networks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="developing_plugins.html">Developing Plugins</a></li>
 <li class="toctree-l1"><a class="reference internal" href="config.html">Configure Ape</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Making Transactions</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#deployment">Deployment</a><ul>
@@ -74,12 +77,13 @@
 <li class="toctree-l2"><a class="reference internal" href="#transaction-logs">Transaction Logs</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#transaction-acceptance-timeout">Transaction Acceptance Timeout</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#traces">Traces</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#estimate-fees">Estimate Fees</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#estimate-gas-cost">Estimate Gas Cost</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="console.html">Ape Console</a></li>
 <li class="toctree-l1"><a class="reference internal" href="contracts.html">Contracts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="testing.html">Testing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="scripts.html">Scripting</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">CLI Reference</span></p>
 <ul>
@@ -146,7 +150,19 @@ as we care about the contract instance. That is why the return value from
 
 <span class="k">def</span> <span class="nf">deploy</span><span class="p">():</span>
     <span class="n">account</span> <span class="o">=</span> <span class="n">accounts</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;MyAccount&quot;</span><span class="p">)</span>
+    <span class="c1"># Assume you have a contract named `MyContract` in your project&#39;s contracts folder.</span>
     <span class="k">return</span> <span class="n">account</span><span class="o">.</span><span class="n">deploy</span><span class="p">(</span><span class="n">project</span><span class="o">.</span><span class="n">MyContract</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>To get the receipt of a <code class="docutils literal notranslate"><span class="pre">deploy</span></code> transaction, use the <a class="reference external" href="../methoddocs/contracts.html#ape.contracts.base.ContractInstance.receipt">ContractInstance.receipt</a> property:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">ape</span> <span class="kn">import</span> <span class="n">accounts</span><span class="p">,</span> <span class="n">project</span>
+
+<span class="n">dev</span> <span class="o">=</span> <span class="n">accounts</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;dev&quot;</span><span class="p">)</span>
+<span class="n">contract</span> <span class="o">=</span> <span class="n">project</span><span class="o">.</span><span class="n">MyContract</span><span class="o">.</span><span class="n">deploy</span><span class="p">(</span><span class="n">sender</span><span class="o">=</span><span class="n">dev</span><span class="p">)</span>
+
+<span class="c1"># The receipt is available on the contract instance and has the expected sender.</span>
+<span class="n">receipt</span> <span class="o">=</span> <span class="n">contract</span><span class="o">.</span><span class="n">receipt</span>
+<span class="k">assert</span> <span class="n">receipt</span><span class="o">.</span><span class="n">sender</span> <span class="o">==</span> <span class="n">dev</span>
 </pre></div>
 </div>
 <section id="deployment-from-ape-console">
@@ -231,9 +247,11 @@ argument <code class="docutils literal notranslate"><span class="pre">type</span
 <section id="transaction-acceptance-timeout">
 <h2>Transaction Acceptance Timeout<a class="headerlink" href="#transaction-acceptance-timeout" title="Permalink to this headline"></a></h2>
 <p><strong>NOTE</strong> For longer running scripts, you may need to increase the transaction acceptance timeout.
-The default value is 2 minutes.
+The default value is 2 minutes for live networks and 20 seconds for local networks.
 In your <code class="docutils literal notranslate"><span class="pre">ape-config.yaml</span></code> file, add the following:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">transaction_acceptance_timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">600</span><span class="w">  </span><span class="c1"># 5 minutes</span><span class="w"></span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">ethereum</span><span class="p">:</span><span class="w"></span>
+<span class="w">  </span><span class="nt">mainnet</span><span class="p">:</span><span class="w"></span>
+<span class="w">    </span><span class="nt">transaction_acceptance_timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">600</span><span class="w">  </span><span class="c1"># 5 minutes</span><span class="w"></span>
 </pre></div>
 </div>
 </section>
@@ -315,13 +333,15 @@ ContractA.methodWithoutArguments<span class="o">()</span> -&gt; 0x00..7a9c <span
 </pre></div>
 </div>
 </section>
-<section id="estimate-fees">
-<h2>Estimate Fees<a class="headerlink" href="#estimate-fees" title="Permalink to this headline"></a></h2>
-<p>To estimate the fees on a transaction without sending it, use the <code class="docutils literal notranslate"><span class="pre">as_transaction()</span></code> method to get a reference to a transaction API object.
-Then, use the <code class="docutils literal notranslate"><span class="pre">ProviderAPI.estimate_gas_cost()</span></code> method with the transaction as the argument.</p>
-<p>(Assume I have a contract instance named <code class="docutils literal notranslate"><span class="pre">contract_a</span></code> that has a method named <code class="docutils literal notranslate"><span class="pre">methodToCall</span></code>)</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">txn</span> <span class="o">=</span> contract_a.methodToCall.as_transaction<span class="o">(</span><span class="m">1</span>, <span class="nv">sender</span><span class="o">=</span>accounts.load<span class="o">(</span><span class="s2">&quot;me&quot;</span><span class="o">))</span>
-<span class="nv">estimated_fees</span> <span class="o">=</span> provider.estimate_gas_cost<span class="o">(</span>txn<span class="o">)</span>
+<section id="estimate-gas-cost">
+<h2>Estimate Gas Cost<a class="headerlink" href="#estimate-gas-cost" title="Permalink to this headline"></a></h2>
+<p>To estimate the gas cost on a transaction or call without sending it, use the <code class="docutils literal notranslate"><span class="pre">estimate_gas_cost()</span></code> method from the contract’s transaction / call handler:
+(Assume I have a contract instance named <code class="docutils literal notranslate"><span class="pre">contract_a</span></code> that has a method named <code class="docutils literal notranslate"><span class="pre">methodToCall</span></code>)</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">txn_cost</span> <span class="o">=</span> <span class="n">contract_a</span><span class="o">.</span><span class="n">myMutableMethod</span><span class="o">.</span><span class="n">estimate_gas_cost</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">sender</span><span class="o">=</span><span class="n">accounts</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;me&quot;</span><span class="p">))</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">txn_cost</span><span class="p">)</span>
+
+<span class="n">view_cost</span> <span class="o">=</span> <span class="n">contract_a</span><span class="o">.</span><span class="n">myViewMethod</span><span class="o">.</span><span class="n">estimate_gas_cost</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">view_cost</span><span class="p">)</span>
 </pre></div>
 </div>
 </section>

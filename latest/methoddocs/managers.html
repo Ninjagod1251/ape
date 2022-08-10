@@ -61,13 +61,17 @@
               <p class="caption" role="heading"><span class="caption-text">User Guides</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../userguides/quickstart.html">Quick Start</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../userguides/installing_plugins.html">Plugins</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../userguides/projects.html">Developing Projects with Ape</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../userguides/plugins.html">Developing Plugins</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../userguides/compile.html">Compile</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../userguides/networks.html">Networks</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../userguides/developing_plugins.html">Developing Plugins</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../userguides/config.html">Configure Ape</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../userguides/transactions.html">Making Transactions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../userguides/console.html">Ape Console</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../userguides/contracts.html">Contracts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../userguides/testing.html">Testing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../userguides/scripts.html">Scripting</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">CLI Reference</span></p>
 <ul>
@@ -513,7 +517,7 @@ move backwards. For example, <code class="docutils literal notranslate"><span cl
 
 <dl class="py method">
 <dt class="sig sig-object py" id="ape.managers.chain.BlockContainer.poll_blocks">
-<span class="sig-name descname"><span class="pre">poll_blocks</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">start_block</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stop_block</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">required_confirmations</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Iterator</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#ape.api.providers.BlockAPI" title="ape.api.providers.BlockAPI"><span class="pre">ape.api.providers.BlockAPI</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#ape.managers.chain.BlockContainer.poll_blocks" title="Permalink to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">poll_blocks</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">start_block</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stop_block</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">required_confirmations</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">new_block_timeout</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Iterator</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#ape.api.providers.BlockAPI" title="ape.api.providers.BlockAPI"><span class="pre">ape.api.providers.BlockAPI</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#ape.managers.chain.BlockContainer.poll_blocks" title="Permalink to this definition"></a></dt>
 <dd><p>Poll new blocks. Optionally set a start block to include historical blocks.
 <strong>NOTE</strong>: This is a daemon method; it does not terminate unless an exception occurrs
 or a <code class="docutils literal notranslate"><span class="pre">stop</span></code> is given.</p>
@@ -534,6 +538,9 @@ Defaults to never-ending.</p></li>
 <li><p><strong>required_confirmations</strong> (<em>Optional</em><em>[</em><em>int</em><em>]</em>) – The amount of confirmations to wait
 before yielding the block. The more confirmations, the less likely a reorg will occur.
 Defaults to the network’s configured required confirmations.</p></li>
+<li><p><strong>new_block_timeout</strong> (<em>Optional</em><em>[</em><em>float</em><em>]</em>) – The amount of time to wait for a new block before
+timing out. Defaults to 10 seconds for local networks or <code class="docutils literal notranslate"><span class="pre">50</span> <span class="pre">*</span> <span class="pre">block_time</span></code> for live
+networks.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns</dt>
@@ -765,6 +772,18 @@ for faster look-up next time.</p>
 </dd></dl>
 
 <dl class="py method">
+<dt class="sig sig-object py" id="ape.managers.chain.ContractCache.cache_deployment">
+<span class="sig-name descname"><span class="pre">cache_deployment</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">contract_instance</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="contracts.html#ape.contracts.base.ContractInstance" title="ape.contracts.base.ContractInstance"><span class="pre">ape.contracts.base.ContractInstance</span></a></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ape.managers.chain.ContractCache.cache_deployment" title="Permalink to this definition"></a></dt>
+<dd><p>Cache the given contract instance’s type and deployment information.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>contract_instance</strong> (<a class="reference internal" href="contracts.html#ape.contracts.base.ContractInstance" title="ape.contracts.base.ContractInstance"><code class="xref py py-class docutils literal notranslate"><span class="pre">ContractInstance</span></code></a>) – The contract
+to cache.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
 <dt class="sig sig-object py" id="ape.managers.chain.ContractCache.get">
 <span class="sig-name descname"><span class="pre">get</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">address</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">ChecksumAddress</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">default</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">ethpm_types.contract_type.ContractType</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">ethpm_types.contract_type.ContractType</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#ape.managers.chain.ContractCache.get" title="Permalink to this definition"></a></dt>
 <dd><p>Get a contract type by address.
@@ -793,14 +812,73 @@ Defaults to <code class="docutils literal notranslate"><span class="pre">None</s
 </dd></dl>
 
 <dl class="py method">
+<dt class="sig sig-object py" id="ape.managers.chain.ContractCache.get_container">
+<span class="sig-name descname"><span class="pre">get_container</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">contract_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">ethpm_types.contract_type.ContractType</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="contracts.html#ape.contracts.base.ContractContainer" title="ape.contracts.base.ContractContainer"><span class="pre">ape.contracts.base.ContractContainer</span></a></span></span><a class="headerlink" href="#ape.managers.chain.ContractCache.get_container" title="Permalink to this definition"></a></dt>
+<dd><p>Get a contract container for the given contract type.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>contract_type</strong> (<em>ContractType</em>) – The contract type to wrap.</p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>A container object you can deploy.</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p><a class="reference internal" href="contracts.html#ape.contracts.base.ContractContainer" title="ape.contracts.base.ContractContainer">ContractContainer</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="ape.managers.chain.ContractCache.get_deployments">
+<span class="sig-name descname"><span class="pre">get_deployments</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">contract_container</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="contracts.html#ape.contracts.base.ContractContainer" title="ape.contracts.base.ContractContainer"><span class="pre">ape.contracts.base.ContractContainer</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">List</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="contracts.html#ape.contracts.base.ContractInstance" title="ape.contracts.base.ContractInstance"><span class="pre">ape.contracts.base.ContractInstance</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#ape.managers.chain.ContractCache.get_deployments" title="Permalink to this definition"></a></dt>
+<dd><p>Retrieves previous deployments of a contract container or contract type.
+Locally deployed contracts are saved for the duration of the script and read from
+<code class="docutils literal notranslate"><span class="pre">_local_deployments_mapping</span></code>, while those deployed on a live network are written to
+disk in <code class="docutils literal notranslate"><span class="pre">deployments_map.json</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>contract_container</strong> (<code class="xref py py-class docutils literal notranslate"><span class="pre">ContractContainer</span></code>) – The
+<code class="docutils literal notranslate"><span class="pre">ContractContainer</span></code> with deployments.</p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>Returns a list of contracts that
+have been deployed.</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>List[<code class="xref py py-class docutils literal notranslate"><span class="pre">ContractInstance</span></code>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="ape.managers.chain.ContractCache.get_multiple">
+<span class="sig-name descname"><span class="pre">get_multiple</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">addresses</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Collection</span><span class="p"><span class="pre">[</span></span><span class="pre">ChecksumAddress</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">concurrency</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">int</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Dict</span><span class="p"><span class="pre">[</span></span><span class="pre">ChecksumAddress</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">ethpm_types.contract_type.ContractType</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#ape.managers.chain.ContractCache.get_multiple" title="Permalink to this definition"></a></dt>
+<dd><p>Get contract types for all given addresses.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>addresses</strong> (<em>List</em><em>[</em><em>AddressType</em>) – A list of addresses to get contract types for.</p></li>
+<li><p><strong>concurrency</strong> (<em>Optional</em><em>[</em><em>int</em><em>]</em>) – The number of threads to use. Defaults to
+<code class="docutils literal notranslate"><span class="pre">min(4,</span> <span class="pre">len(addresses))</span></code>.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>A mapping of addresses to their respective
+contract types.</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>Dict[AddressType, ContractType]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
 <dt class="sig sig-object py" id="ape.managers.chain.ContractCache.instance_at">
-<span class="sig-name descname"><span class="pre">instance_at</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">address</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Union</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">ChecksumAddress</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">contract_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">ethpm_types.contract_type.ContractType</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="api.html#ape.api.address.BaseAddress" title="ape.api.address.BaseAddress"><span class="pre">ape.api.address.BaseAddress</span></a></span></span><a class="headerlink" href="#ape.managers.chain.ContractCache.instance_at" title="Permalink to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">instance_at</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">address</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Union</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">ChecksumAddress</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">contract_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">ethpm_types.contract_type.ContractType</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">txn_hash</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="contracts.html#ape.contracts.base.ContractInstance" title="ape.contracts.base.ContractInstance"><span class="pre">ape.contracts.base.ContractInstance</span></a></span></span><a class="headerlink" href="#ape.managers.chain.ContractCache.instance_at" title="Permalink to this definition"></a></dt>
 <dd><p>Get a contract at the given address. If the contract type of the contract is known,
 either from a local deploy or a <a class="reference internal" href="api.html#ape.api.explorers.ExplorerAPI" title="ape.api.explorers.ExplorerAPI"><code class="xref py py-class docutils literal notranslate"><span class="pre">ExplorerAPI</span></code></a>, it will use that
 contract type. You can also provide the contract type from which it will cache and use
-next time. If the contract type is not known, returns a
-<a class="reference internal" href="api.html#ape.api.address.BaseAddress" title="ape.api.address.BaseAddress"><code class="xref py py-class docutils literal notranslate"><span class="pre">BaseAddress</span></code></a> object; otherwise returns a
-<code class="xref py py-class docutils literal notranslate"><span class="pre">ContractInstance</span></code> (subclass).</p>
+next time.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Raises</dt>
 <dd class="field-odd"><p><strong>TypeError</strong> – When passing an invalid type for the <cite>contract_type</cite> arguments
@@ -815,15 +893,7 @@ in case it is not already known.</p></li>
 </ul>
 </dd>
 <dt class="field-odd">Returns</dt>
-<dd class="field-odd"><p><dl class="simple">
-<dt>Will be a</dt><dd><p><code class="xref py py-class docutils literal notranslate"><span class="pre">ContractInstance</span></code> if the contract type is discovered,
-which is a subclass of the <code class="docutils literal notranslate"><span class="pre">BaseAddress</span></code> class.</p>
-</dd>
-</dl>
-</p>
-</dd>
-<dt class="field-even">Return type</dt>
-<dd class="field-even"><p><a class="reference internal" href="api.html#ape.api.address.BaseAddress" title="ape.api.address.BaseAddress"><code class="xref py py-class docutils literal notranslate"><span class="pre">BaseAddress</span></code></a></p>
+<dd class="field-odd"><p><a class="reference internal" href="contracts.html#ape.contracts.base.ContractInstance" title="ape.contracts.base.ContractInstance"><code class="xref py py-class docutils literal notranslate"><span class="pre">ContractInstance</span></code></a></p>
 </dd>
 </dl>
 </dd></dl>
@@ -835,7 +905,7 @@ which is a subclass of the <code class="docutils literal notranslate"><span clas
 <span id="config"></span><h2>Config<a class="headerlink" href="#module-ape.managers.config" title="Permalink to this headline"></a></h2>
 <dl class="py class">
 <dt class="sig sig-object py" id="ape.managers.config.ConfigManager">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">ape.managers.config.</span></span><span class="sig-name descname"><span class="pre">ConfigManager</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">DATA_FOLDER</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">pathlib.Path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">REQUEST_HEADER</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Dict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">PROJECT_FOLDER</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">pathlib.Path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">version</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">meta</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">ethpm_types.manifest.PackageMeta</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">PackageMeta(authors=None,</span> <span class="pre">license=None,</span> <span class="pre">description=None,</span> <span class="pre">keywords=None,</span> <span class="pre">links=None)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">contracts_folder</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">pathlib.Path</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dependencies</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">List</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#ape.api.projects.DependencyAPI" title="ape.api.projects.DependencyAPI"><span class="pre">ape.api.projects.DependencyAPI</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">[]</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deployments</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#ape.managers.config.DeploymentConfigCollection" title="ape.managers.config.DeploymentConfigCollection"><span class="pre">ape.managers.config.DeploymentConfigCollection</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">default_ecosystem</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'ethereum'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">transaction_acceptance_timeout</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">int</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">120</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ape.managers.config.ConfigManager" title="Permalink to this definition"></a></dt>
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">ape.managers.config.</span></span><span class="sig-name descname"><span class="pre">ConfigManager</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">DATA_FOLDER</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">pathlib.Path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">REQUEST_HEADER</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Dict</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">PROJECT_FOLDER</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">pathlib.Path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">version</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">meta</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">ethpm_types.manifest.PackageMeta</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">PackageMeta(authors=None,</span> <span class="pre">license=None,</span> <span class="pre">description=None,</span> <span class="pre">keywords=None,</span> <span class="pre">links=None)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">contracts_folder</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">pathlib.Path</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dependencies</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">List</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#ape.api.projects.DependencyAPI" title="ape.api.projects.DependencyAPI"><span class="pre">ape.api.projects.DependencyAPI</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">[]</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deployments</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#ape.managers.config.DeploymentConfigCollection" title="ape.managers.config.DeploymentConfigCollection"><span class="pre">ape.managers.config.DeploymentConfigCollection</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">default_ecosystem</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'ethereum'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ape.managers.config.ConfigManager" title="Permalink to this definition"></a></dt>
 <dd><p>The singleton responsible for managing the <code class="docutils literal notranslate"><span class="pre">ape-config.yaml</span></code> project file.
 The config manager is useful for loading plugin configurations which contain
 settings that determine how <code class="docutils literal notranslate"><span class="pre">ape</span></code> functions. When developing plugins,
@@ -922,13 +992,6 @@ is how you can access those settings at runtime.</p>
 <dt class="sig sig-object py" id="ape.managers.config.ConfigManager.name">
 <span class="sig-name descname"><span class="pre">name</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></em><a class="headerlink" href="#ape.managers.config.ConfigManager.name" title="Permalink to this definition"></a></dt>
 <dd><p>The name of the project.</p>
-</dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py" id="ape.managers.config.ConfigManager.transaction_acceptance_timeout">
-<span class="sig-name descname"><span class="pre">transaction_acceptance_timeout</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></em><a class="headerlink" href="#ape.managers.config.ConfigManager.transaction_acceptance_timeout" title="Permalink to this definition"></a></dt>
-<dd><p>The amount of time to wait for a transaction to be accepted on the network.
-Does not include waiting for block-confirmations.</p>
 </dd></dl>
 
 <dl class="py method">
@@ -1262,6 +1325,29 @@ However, use this singleton for more granular access to networks.</p>
 <dt class="sig sig-object py" id="ape.managers.networks.NetworkManager.active_provider">
 <em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">active_provider</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="api.html#ape.api.providers.ProviderAPI" title="ape.api.providers.ProviderAPI"><span class="pre">ape.api.providers.ProviderAPI</span></a><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#ape.managers.networks.NetworkManager.active_provider" title="Permalink to this definition"></a></dt>
 <dd><p>The currently connected provider if one exists. Otherwise, returns <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="ape.managers.networks.NetworkManager.create_adhoc_geth_provider">
+<span class="sig-name descname"><span class="pre">create_adhoc_geth_provider</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">uri</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="api.html#ape.api.providers.ProviderAPI" title="ape.api.providers.ProviderAPI"><span class="pre">ape.api.providers.ProviderAPI</span></a></span></span><a class="headerlink" href="#ape.managers.networks.NetworkManager.create_adhoc_geth_provider" title="Permalink to this definition"></a></dt>
+<dd><p>Create an ad-hoc connection to a URI using the GethProvider core plugin.
+<strong>NOTE</strong>: This provider will assume EVM-like behavior and this is generally not recommended.
+Use plugins when possible!</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>uri</strong> (<em>str</em>) – The URI of the node.</p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p><dl class="simple">
+<dt>The Geth provider</dt><dd><p>implementation that comes with Ape.</p>
+</dd>
+</dl>
+</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p><a class="reference internal" href="api.html#ape.api.providers.ProviderAPI" title="ape.api.providers.ProviderAPI"><code class="xref py py-class docutils literal notranslate"><span class="pre">ProviderAPI</span></code></a></p>
+</dd>
+</dl>
 </dd></dl>
 
 <dl class="py property">
