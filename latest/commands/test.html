@@ -61,9 +61,11 @@
               <p class="caption" role="heading"><span class="caption-text">User Guides</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../userguides/quickstart.html">Quick Start</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../userguides/accounts.html">Accounts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../userguides/installing_plugins.html">Plugins</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../userguides/projects.html">Developing Projects with Ape</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../userguides/compile.html">Compile</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../userguides/cache.html">Cache</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../userguides/networks.html">Networks</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../userguides/developing_plugins.html">Developing Plugins</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../userguides/config.html">Configure Ape</a></li>
@@ -72,6 +74,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../userguides/contracts.html">Contracts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../userguides/testing.html">Testing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../userguides/scripts.html">Scripting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../userguides/publishing.html">Publishing</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">CLI Reference</span></p>
 <ul class="current">
@@ -111,8 +114,8 @@
         <div class="rst-content">
           <div role="navigation" aria-label="Page navigation">
   <ul class="wy-breadcrumbs">
-      <li><a href="../index.html" class="icon icon-home"></a> &raquo;</li>
-      <li>test</li>
+      <li><a href="../index.html" class="icon icon-home"></a></li>
+      <li class="breadcrumb-item active">test</li>
       <li class="wy-breadcrumbs-aside">
             <a href="../_sources/commands/test.rst.txt" rel="nofollow"> View page source</a>
       </li>
@@ -133,6 +136,24 @@
 <dt class="sig sig-object std" id="cmdoption-test-v">
 <span id="cmdoption-test-verbosity"></span><span class="sig-name descname"><span class="pre">-v</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--verbosity</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;LVL&gt;</span></span><a class="headerlink" href="#cmdoption-test-v" title="Permalink to this definition"></a></dt>
 <dd><p>One of ERROR, WARNING, SUCCESS, INFO, or DEBUG</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-test-w">
+<span id="cmdoption-test-watch"></span><span class="sig-name descname"><span class="pre">-w</span></span><span class="sig-prename descclassname"></span><span class="sig-prename descclassname"><span class="pre">,</span> </span><span class="sig-name descname"><span class="pre">--watch</span></span><span class="sig-prename descclassname"></span><a class="headerlink" href="#cmdoption-test-w" title="Permalink to this definition"></a></dt>
+<dd><p>Watch for changes to project files and re-run the test suite with the given options.</p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-test-watch-folders">
+<span class="sig-name descname"><span class="pre">--watch-folders</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;watch_folders&gt;</span></span><a class="headerlink" href="#cmdoption-test-watch-folders" title="Permalink to this definition"></a></dt>
+<dd><p>Folders to watch for changes using <cite>ape test –watch</cite>. Defaults to <cite>contracts/</cite> and <cite>tests/</cite></p>
+</dd></dl>
+
+<dl class="std option">
+<dt class="sig sig-object std" id="cmdoption-test-watch-delay">
+<span class="sig-name descname"><span class="pre">--watch-delay</span></span><span class="sig-prename descclassname"> <span class="pre">&lt;watch_delay&gt;</span></span><a class="headerlink" href="#cmdoption-test-watch-delay" title="Permalink to this definition"></a></dt>
+<dd><p>Delay between polling cycles for <cite>ape test –watch</cite>. Defaults to 0.5 seconds.</p>
 </dd></dl>
 
 <p class="rubric">Arguments</p>

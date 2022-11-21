@@ -29,7 +29,7 @@
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="Developing Plugins" href="developing_plugins.html" />
-    <link rel="prev" title="Compile" href="compile.html" /> 
+    <link rel="prev" title="Cache" href="cache.html" /> 
 </head>
 
 <body class="wy-body-for-nav"> 
@@ -61,9 +61,11 @@
               <p class="caption" role="heading"><span class="caption-text">User Guides</span></p>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start</a></li>
+<li class="toctree-l1"><a class="reference internal" href="accounts.html">Accounts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="installing_plugins.html">Plugins</a></li>
 <li class="toctree-l1"><a class="reference internal" href="projects.html">Developing Projects with Ape</a></li>
 <li class="toctree-l1"><a class="reference internal" href="compile.html">Compile</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cache.html">Cache</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Networks</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#selecting-a-network">Selecting a Network</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#configuring-networks">Configuring Networks</a></li>
@@ -79,6 +81,7 @@
 <li class="toctree-l1"><a class="reference internal" href="contracts.html">Contracts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="testing.html">Testing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="scripts.html">Scripting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="publishing.html">Publishing</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">CLI Reference</span></p>
 <ul>
@@ -118,8 +121,8 @@
         <div class="rst-content">
           <div role="navigation" aria-label="Page navigation">
   <ul class="wy-breadcrumbs">
-      <li><a href="../index.html" class="icon icon-home"></a> &raquo;</li>
-      <li>Networks</li>
+      <li><a href="../index.html" class="icon icon-home"></a></li>
+      <li class="breadcrumb-item active">Networks</li>
       <li class="wy-breadcrumbs-aside">
             <a href="../_sources/userguides/networks.md.txt" rel="nofollow"> View page source</a>
       </li>
@@ -161,6 +164,20 @@ The following configuration changes the default ecosystem, network, and provider
 <span class="w">    </span><span class="nt">default_provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;provider-name&gt;</span><span class="w"></span>
 </pre></div>
 </div>
+<p>You may also configure a specific gas limit for a given network:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">&lt;ecosystem-name&gt;</span><span class="p">:</span><span class="w"></span>
+<span class="w">  </span><span class="nt">default_network</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">&lt;network-name&gt;</span><span class="w"></span>
+<span class="w">  </span><span class="nt">&lt;network-name&gt;</span><span class="p">:</span><span class="w"></span>
+<span class="w">    </span><span class="nt">gas_limit</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;max&quot;</span><span class="w"></span>
+</pre></div>
+</div>
+<p>You may use one of:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">&quot;auto&quot;</span></code> - gas limit is estimated for each transaction</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">&quot;max&quot;</span></code> - the maximum block gas limit is used</p></li>
+<li><p>A number or numeric string, base 10 or 16 (e.g. <code class="docutils literal notranslate"><span class="pre">1234</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;1234&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">0x1234</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;0x1234&quot;</span></code>)</p></li>
+</ul>
+<p>For the local network configuration, the default is <code class="docutils literal notranslate"><span class="pre">&quot;max&quot;</span></code>. Otherwise it is <code class="docutils literal notranslate"><span class="pre">&quot;auto&quot;</span></code>.</p>
 </section>
 <section id="local-network">
 <h2>Local Network<a class="headerlink" href="#local-network" title="Permalink to this headline"></a></h2>
@@ -217,7 +234,7 @@ Some reasons for this include:</p>
            </div>
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
-        <a href="compile.html" class="btn btn-neutral float-left" title="Compile" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="cache.html" class="btn btn-neutral float-left" title="Cache" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
         <a href="developing_plugins.html" class="btn btn-neutral float-right" title="Developing Plugins" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 

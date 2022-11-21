@@ -60,9 +60,11 @@
               <p class="caption" role="heading"><span class="caption-text">User Guides</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../userguides/quickstart.html">Quick Start</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../userguides/accounts.html">Accounts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../userguides/installing_plugins.html">Plugins</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../userguides/projects.html">Developing Projects with Ape</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../userguides/compile.html">Compile</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../userguides/cache.html">Cache</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../userguides/networks.html">Networks</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../userguides/developing_plugins.html">Developing Plugins</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../userguides/config.html">Configure Ape</a></li>
@@ -71,6 +73,7 @@
 <li class="toctree-l1"><a class="reference internal" href="../userguides/contracts.html">Contracts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../userguides/testing.html">Testing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../userguides/scripts.html">Scripting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../userguides/publishing.html">Publishing</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">CLI Reference</span></p>
 <ul>
@@ -110,8 +113,8 @@
         <div class="rst-content">
           <div role="navigation" aria-label="Page navigation">
   <ul class="wy-breadcrumbs">
-      <li><a href="../index.html" class="icon icon-home"></a> &raquo;</li>
-      <li>ape.utils</li>
+      <li><a href="../index.html" class="icon icon-home"></a></li>
+      <li class="breadcrumb-item active">ape.utils</li>
       <li class="wy-breadcrumbs-aside">
             <a href="../_sources/methoddocs/utils.md.txt" rel="nofollow"> View page source</a>
       </li>
@@ -152,17 +155,17 @@
 
 <dl class="py class">
 <dt class="sig sig-object py" id="ape.utils.CallTraceParser">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">ape.utils.</span></span><span class="sig-name descname"><span class="pre">CallTraceParser</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">receipt:</span> <span class="pre">ReceiptAPI</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose:</span> <span class="pre">bool</span> <span class="pre">=</span> <span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wrap_threshold:</span> <span class="pre">int</span> <span class="pre">=</span> <span class="pre">50</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">indent:</span> <span class="pre">int</span> <span class="pre">=</span> <span class="pre">2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">color_set:</span> <span class="pre">typing.Union[ape.utils.trace.TraceStyles</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">typing.Type[ape.utils.trace.TraceStyles]]</span> <span class="pre">=</span> <span class="pre">&lt;class</span> <span class="pre">'ape.utils.trace.TraceStyles'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ape.utils.CallTraceParser" title="Permalink to this definition"></a></dt>
-<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">ape.utils.</span></span><span class="sig-name descname"><span class="pre">CallTraceParser</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sender:</span> <span class="pre">typing.Optional[typing.Union[ReceiptAPI</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">AddressType]]</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">transaction_hash:</span> <span class="pre">typing.Optional[str]</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">verbose:</span> <span class="pre">bool</span> <span class="pre">=</span> <span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">wrap_threshold:</span> <span class="pre">int</span> <span class="pre">=</span> <span class="pre">50</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">indent:</span> <span class="pre">int</span> <span class="pre">=</span> <span class="pre">2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">color_set:</span> <span class="pre">typing.Union[ape.utils.trace.TraceStyles</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">typing.Type[ape.utils.trace.TraceStyles]]</span> <span class="pre">=</span> <span class="pre">&lt;class</span> <span class="pre">'ape.utils.trace.TraceStyles'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ape.utils.CallTraceParser" title="Permalink to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">ape.utils.basemodel.ManagerAccessMixin</span></code></p>
 <p>A class for parsing a call trace, used in the
 <code class="xref py py-meth docutils literal notranslate"><span class="pre">show_trace()</span></code> method,
 which uses the response from
 <code class="xref py py-meth docutils literal notranslate"><span class="pre">get_call_trace()</span></code> and the
 <code class="docutils literal notranslate"><span class="pre">evm-trace</span></code> Python package.</p>
 <p>Usage example:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">tree_factory</span> <span class="o">=</span> <span class="n">CallTraceParser</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">verbose</span><span class="o">=</span><span class="n">verbose</span><span class="p">)</span>
-<span class="n">call_tree</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">provider</span><span class="o">.</span><span class="n">get_call_tree</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">txn_hash</span><span class="p">)</span>
-<span class="n">root</span> <span class="o">=</span> <span class="n">tree_factory</span><span class="o">.</span><span class="n">parse_as_tree</span><span class="p">(</span><span class="n">call_tree</span><span class="p">)</span>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">parser</span> <span class="o">=</span> <span class="n">CallTraceParser</span><span class="p">(</span><span class="n">sender</span><span class="o">=</span><span class="n">sender</span><span class="p">,</span> <span class="n">transaction_hash</span><span class="o">=</span><span class="n">txn_hash</span><span class="p">,</span> <span class="n">verbose</span><span class="o">=</span><span class="n">verbose</span><span class="p">)</span>
+<span class="n">call_tree</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">provider</span><span class="o">.</span><span class="n">get_call_tree</span><span class="p">(</span><span class="n">txn_hash</span><span class="p">)</span>
+<span class="n">root</span> <span class="o">=</span> <span class="n">parser</span><span class="o">.</span><span class="n">parse_as_tree</span><span class="p">(</span><span class="n">call_tree</span><span class="p">)</span>
 </pre></div>
 </div>
 <dl class="py method">
@@ -245,7 +248,7 @@ accounts using the <a class="reference internal" href="managers.html#ape.manager
 
 <dl class="py method">
 <dt class="sig sig-object py" id="ape.utils.GithubClient.clone_repo">
-<span class="sig-name descname"><span class="pre">clone_repo</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">repo_path</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target_path</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">pathlib.Path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">branch</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">pygit2.repository.Repository</span></span></span><a class="headerlink" href="#ape.utils.GithubClient.clone_repo" title="Permalink to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">clone_repo</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">repo_path</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target_path</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">pathlib.Path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">branch</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scheme</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'ssh'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ape.utils.GithubClient.clone_repo" title="Permalink to this definition"></a></dt>
 <dd><p>Clone a repository from Github.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
@@ -254,10 +257,8 @@ accounts using the <a class="reference internal" href="managers.html#ape.manager
 e.g. <code class="docutils literal notranslate"><span class="pre">OpenZeppelin/openzeppelin-contracts</span></code>.</p></li>
 <li><p><strong>target_path</strong> (<a class="reference internal" href="cli.html#ape.cli.paramtype.Path" title="ape.cli.paramtype.Path"><em>Path</em></a>) – The local path to store the repo.</p></li>
 <li><p><strong>branch</strong> (<em>Optional</em><em>[</em><em>str</em><em>]</em>) – The branch to clone. Defaults to the default branch.</p></li>
+<li><p><strong>scheme</strong> (<em>str</em>) – The git scheme to use when cloning. Defaults to <cite>ssh</cite>.</p></li>
 </ul>
-</dd>
-<dt class="field-even">Returns</dt>
-<dd class="field-even"><p>pygit2.repository.Repository</p>
 </dd>
 </dl>
 </dd></dl>
@@ -454,6 +455,23 @@ they all have the same length.</p>
 <dd class="field-odd"><p>List[str]</p>
 </dd>
 </dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="ape.utils.allow_disconnected">
+<span class="sig-prename descclassname"><span class="pre">ape.utils.</span></span><span class="sig-name descname"><span class="pre">allow_disconnected</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fn</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Callable</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ape.utils.allow_disconnected" title="Permalink to this definition"></a></dt>
+<dd><p>A decorator that instead of raising <a class="reference internal" href="exceptions.html#ape.exceptions.ProviderNotConnectedError" title="ape.exceptions.ProviderNotConnectedError"><code class="xref py py-class docutils literal notranslate"><span class="pre">ProviderNotConnectedError</span></code></a>
+warns and returns <code class="docutils literal notranslate"><span class="pre">None</span></code>.</p>
+<p>Usage example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Optional</span>
+<span class="kn">from</span> <span class="nn">ape.types</span> <span class="kn">import</span> <span class="n">SnapshotID</span>
+<span class="kn">from</span> <span class="nn">ape.utils</span> <span class="kn">import</span> <span class="n">return_none_when_disconnected</span>
+
+<span class="nd">@allow_disconnected</span>
+<span class="k">def</span> <span class="nf">try_snapshot</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">SnapshotID</span><span class="p">]:</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">chain</span><span class="o">.</span><span class="n">snapshot</span><span class="p">()</span>
+</pre></div>
+</div>
 </dd></dl>
 
 <dl class="py function">
@@ -667,6 +685,13 @@ and is able to be load.</p></li>
 <dd class="field-odd"><p>Dict (dict)</p>
 </dd>
 </dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="ape.utils.parse_type">
+<span class="sig-prename descclassname"><span class="pre">ape.utils.</span></span><span class="sig-name descname"><span class="pre">parse_type</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">Union</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Tuple</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">List</span><span class="p"><span class="pre">]</span></span></span></span><a class="headerlink" href="#ape.utils.parse_type" title="Permalink to this definition"></a></dt>
+<dd><p>Parses <code class="docutils literal notranslate"><span class="pre">ABIType.dict()</span></code> into Python types.
+Deprecated: Use <a class="reference internal" href="api.html#ape.api.networks.EcosystemAPI" title="ape.api.networks.EcosystemAPI"><code class="xref py py-class docutils literal notranslate"><span class="pre">EcosystemAPI</span></code></a> implemented methods.</p>
 </dd></dl>
 
 <dl class="py function">

@@ -61,9 +61,11 @@
               <p class="caption" role="heading"><span class="caption-text">User Guides</span></p>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start</a></li>
+<li class="toctree-l1"><a class="reference internal" href="accounts.html">Accounts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="installing_plugins.html">Plugins</a></li>
 <li class="toctree-l1"><a class="reference internal" href="projects.html">Developing Projects with Ape</a></li>
 <li class="toctree-l1"><a class="reference internal" href="compile.html">Compile</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cache.html">Cache</a></li>
 <li class="toctree-l1"><a class="reference internal" href="networks.html">Networks</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Developing Plugins</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#initialize-a-plugin-project">Initialize a Plugin Project</a></li>
@@ -86,6 +88,7 @@
 <li class="toctree-l1"><a class="reference internal" href="contracts.html">Contracts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="testing.html">Testing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="scripts.html">Scripting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="publishing.html">Publishing</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">CLI Reference</span></p>
 <ul>
@@ -125,8 +128,8 @@
         <div class="rst-content">
           <div role="navigation" aria-label="Page navigation">
   <ul class="wy-breadcrumbs">
-      <li><a href="../index.html" class="icon icon-home"></a> &raquo;</li>
-      <li>Developing Plugins</li>
+      <li><a href="../index.html" class="icon icon-home"></a></li>
+      <li class="breadcrumb-item active">Developing Plugins</li>
       <li class="wy-breadcrumbs-aside">
             <a href="../_sources/userguides/developing_plugins.md.txt" rel="nofollow"> View page source</a>
       </li>
@@ -139,9 +142,9 @@
   <section id="developing-plugins">
 <h1>Developing Plugins<a class="headerlink" href="#developing-plugins" title="Permalink to this headline"></a></h1>
 <p>Your plugin project can be any type of python project, so long as its package name starts with <code class="docutils literal notranslate"><span class="pre">ape_</span></code> (such as <code class="docutils literal notranslate"><span class="pre">ape_ethereum</span></code>).
-To create an <code class="docutils literal notranslate"><span class="pre">ape</span></code> plugin, implement one or more API classes from the the <code class="docutils literal notranslate"><span class="pre">ape.api</span></code> namespace and/or add key
+To create an <code class="docutils literal notranslate"><span class="pre">ape</span></code> plugin, implement one or more API classes from the <code class="docutils literal notranslate"><span class="pre">ape.api</span></code> namespace and/or add key
 <code class="docutils literal notranslate"><span class="pre">ape_cli_subcommands</span></code> to your entry-points list in your project’s <code class="docutils literal notranslate"><span class="pre">setup.py</span></code>, depending on what type of plugin you want to create.
-This guide is intended to assist in both of those use-cases.</p>
+This guide is intended to assist in both of those use cases.</p>
 <p>The following is a list of example plugins to use as a reference when developing plugins:</p>
 <ul class="simple">
 <li><p><a class="reference external" href="https://github.com/apeworx/ape-solidity">the Solidity plugin</a>, an example <code class="docutils literal notranslate"><span class="pre">CompilerAPI</span></code></p></li>
@@ -159,7 +162,7 @@ The template may be good to follow if you want to keep your plugin of similar qu
 </section>
 <section id="implementing-api-classes">
 <h2>Implementing API Classes<a class="headerlink" href="#implementing-api-classes" title="Permalink to this headline"></a></h2>
-<p>API classes (classes from the <code class="docutils literal notranslate"><span class="pre">ape.api</span></code> namespace) are primary composed of abstract methods and properties that plugins must implement.
+<p>API classes (classes from the <code class="docutils literal notranslate"><span class="pre">ape.api</span></code> namespace) are primarily composed of abstract methods and properties that plugins must implement.
 A benefit of the plugin system is that each plugin can implement these however they need, so long as they conform to the API interface.
 Two plugins with the same API may do entirely different things and yet be interchangeable in their usage.</p>
 <p>To implement an API, import its class and use it as a base-class in your implementation class.

@@ -28,7 +28,7 @@
   </script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Networks" href="networks.html" />
+    <link rel="next" title="Cache" href="cache.html" />
     <link rel="prev" title="Developing Projects with Ape" href="projects.html" /> 
 </head>
 
@@ -61,6 +61,7 @@
               <p class="caption" role="heading"><span class="caption-text">User Guides</span></p>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start</a></li>
+<li class="toctree-l1"><a class="reference internal" href="accounts.html">Accounts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="installing_plugins.html">Plugins</a></li>
 <li class="toctree-l1"><a class="reference internal" href="projects.html">Developing Projects with Ape</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Compile</a><ul>
@@ -68,6 +69,7 @@
 <li class="toctree-l2"><a class="reference internal" href="#other-compiler-plugins">Other Compiler Plugins</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="cache.html">Cache</a></li>
 <li class="toctree-l1"><a class="reference internal" href="networks.html">Networks</a></li>
 <li class="toctree-l1"><a class="reference internal" href="developing_plugins.html">Developing Plugins</a></li>
 <li class="toctree-l1"><a class="reference internal" href="config.html">Configure Ape</a></li>
@@ -76,6 +78,7 @@
 <li class="toctree-l1"><a class="reference internal" href="contracts.html">Contracts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="testing.html">Testing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="scripts.html">Scripting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="publishing.html">Publishing</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">CLI Reference</span></p>
 <ul>
@@ -115,8 +118,8 @@
         <div class="rst-content">
           <div role="navigation" aria-label="Page navigation">
   <ul class="wy-breadcrumbs">
-      <li><a href="../index.html" class="icon icon-home"></a> &raquo;</li>
-      <li>Compile</li>
+      <li><a href="../index.html" class="icon icon-home"></a></li>
+      <li class="breadcrumb-item active">Compile</li>
       <li class="wy-breadcrumbs-aside">
             <a href="../_sources/userguides/compile.md.txt" rel="nofollow"> View page source</a>
       </li>
@@ -145,8 +148,14 @@ This compiler is useful for the following:</p>
 </ol>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">ape</span> <span class="kn">import</span> <span class="n">project</span>
 
+<span class="c1"># Comes from a file named `MyInterface.json` in the contracts/ folder.</span>
+<span class="n">my_interface</span> <span class="o">=</span> <span class="n">project</span><span class="o">.</span><span class="n">MyInterface</span>
 <span class="n">address</span> <span class="o">=</span> <span class="s2">&quot;0x1234556b5Ed9202110D7Ecd637A4581db8b9879F&quot;</span>
-<span class="n">contract</span> <span class="o">=</span> <span class="n">project</span><span class="o">.</span><span class="n">MyInterface</span><span class="o">.</span><span class="n">at</span><span class="p">(</span><span class="n">address</span><span class="p">)</span>
+
+<span class="c1"># Instantiate a deployed contract using the local interface.</span>
+<span class="n">contract</span> <span class="o">=</span> <span class="n">my_interface</span><span class="o">.</span><span class="n">at</span><span class="p">(</span><span class="n">address</span><span class="p">)</span>
+
+<span class="c1"># Call a method named `my_method` found in the local contract ABI.</span>
 <span class="n">contract</span><span class="o">.</span><span class="n">my_method</span><span class="p">()</span>
 </pre></div>
 </div>
@@ -160,7 +169,7 @@ This is useful if you are unable or unwilling to install a compiler.</p></li>
 <h2>Other Compiler Plugins<a class="headerlink" href="#other-compiler-plugins" title="Permalink to this headline"></a></h2>
 <p>If your project includes Solidity (<code class="docutils literal notranslate"><span class="pre">.sol</span></code>) or Vyper (<code class="docutils literal notranslate"><span class="pre">.vy</span></code>) files, you will have to install additional compilers.
 To include additional compilers in your project, you can add the plugins to the <code class="docutils literal notranslate"><span class="pre">plugins</span></code> list in your <code class="docutils literal notranslate"><span class="pre">ape-config.yaml</span></code> or install them using the CLI.
-For information on how to configure plugins in your project, follow <a class="reference external" href="./installing_plugins.md">this guide</a>.</p>
+For information on how to configure plugins in your project, follow <a class="reference external" href="./installing_plugins.html">this guide</a>.</p>
 </section>
 </section>
 
@@ -169,7 +178,7 @@ For information on how to configure plugins in your project, follow <a class="re
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
         <a href="projects.html" class="btn btn-neutral float-left" title="Developing Projects with Ape" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="networks.html" class="btn btn-neutral float-right" title="Networks" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="cache.html" class="btn btn-neutral float-right" title="Cache" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>

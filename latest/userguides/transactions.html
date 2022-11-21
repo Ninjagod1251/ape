@@ -61,9 +61,11 @@
               <p class="caption" role="heading"><span class="caption-text">User Guides</span></p>
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start</a></li>
+<li class="toctree-l1"><a class="reference internal" href="accounts.html">Accounts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="installing_plugins.html">Plugins</a></li>
 <li class="toctree-l1"><a class="reference internal" href="projects.html">Developing Projects with Ape</a></li>
 <li class="toctree-l1"><a class="reference internal" href="compile.html">Compile</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cache.html">Cache</a></li>
 <li class="toctree-l1"><a class="reference internal" href="networks.html">Networks</a></li>
 <li class="toctree-l1"><a class="reference internal" href="developing_plugins.html">Developing Plugins</a></li>
 <li class="toctree-l1"><a class="reference internal" href="config.html">Configure Ape</a></li>
@@ -77,6 +79,7 @@
 <li class="toctree-l2"><a class="reference internal" href="#transaction-logs">Transaction Logs</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#transaction-acceptance-timeout">Transaction Acceptance Timeout</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#traces">Traces</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#gas-reports">Gas Reports</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#estimate-gas-cost">Estimate Gas Cost</a></li>
 </ul>
 </li>
@@ -84,6 +87,7 @@
 <li class="toctree-l1"><a class="reference internal" href="contracts.html">Contracts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="testing.html">Testing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="scripts.html">Scripting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="publishing.html">Publishing</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">CLI Reference</span></p>
 <ul>
@@ -123,8 +127,8 @@
         <div class="rst-content">
           <div role="navigation" aria-label="Page navigation">
   <ul class="wy-breadcrumbs">
-      <li><a href="../index.html" class="icon icon-home"></a> &raquo;</li>
-      <li>Making Transactions</li>
+      <li><a href="../index.html" class="icon icon-home"></a></li>
+      <li class="breadcrumb-item active">Making Transactions</li>
       <li class="wy-breadcrumbs-aside">
             <a href="../_sources/userguides/transactions.md.txt" rel="nofollow"> View page source</a>
       </li>
@@ -328,8 +332,37 @@ ContractA.methodWithoutArguments<span class="o">()</span> -&gt; 0x00..7a9c <span
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">ape</span> <span class="kn">import</span> <span class="n">networks</span>
 
 <span class="n">txn_hash</span> <span class="o">=</span> <span class="s2">&quot;0x053cba5c12172654d894f66d5670bab6215517a94189a9ffc09bc40a589ec04d&quot;</span>
-<span class="n">receipt</span> <span class="o">=</span> <span class="n">networks</span><span class="o">.</span><span class="n">provider</span><span class="o">.</span><span class="n">get_transaction</span><span class="p">(</span><span class="n">txn_hash</span><span class="p">)</span>
+<span class="n">receipt</span> <span class="o">=</span> <span class="n">networks</span><span class="o">.</span><span class="n">provider</span><span class="o">.</span><span class="n">get_receipt</span><span class="p">(</span><span class="n">txn_hash</span><span class="p">)</span>
 <span class="n">receipt</span><span class="o">.</span><span class="n">show_trace</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>In Ape, you can also show the trace for a call.
+Use the <code class="docutils literal notranslate"><span class="pre">show_trace=</span></code> kwarg on a contract call and Ape will display the trace before returning the data.</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">token</span><span class="o">.</span><span class="n">balanceOf</span><span class="p">(</span><span class="n">account</span><span class="p">,</span> <span class="n">show_trace</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</pre></div>
+</div>
+<p><strong>NOTE</strong>: This may not work on all providers, but it should work on common ones such as <code class="docutils literal notranslate"><span class="pre">ape-hardhat</span></code> or <code class="docutils literal notranslate"><span class="pre">ape-geth</span></code>.</p>
+</section>
+<section id="gas-reports">
+<h2>Gas Reports<a class="headerlink" href="#gas-reports" title="Permalink to this headline"></a></h2>
+<p>To view the gas report of a transaction receipt, use the <a class="reference external" href="../methoddocs/api.html?highlight=receiptapi#ape.api.transactions.ReceiptAPI.show_gas_report"><code class="docutils literal notranslate"><span class="pre">ReceiptAPI.show_gas_report()</span></code></a> method:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">ape</span> <span class="kn">import</span> <span class="n">networks</span>
+
+<span class="n">txn_hash</span> <span class="o">=</span> <span class="s2">&quot;0x053cba5c12172654d894f66d5670bab6215517a94189a9ffc09bc40a589ec04d&quot;</span>
+<span class="n">receipt</span> <span class="o">=</span> <span class="n">networks</span><span class="o">.</span><span class="n">provider</span><span class="o">.</span><span class="n">get_receipt</span><span class="p">(</span><span class="n">txn_hash</span><span class="p">)</span>
+<span class="n">receipt</span><span class="o">.</span><span class="n">show_gas_report</span><span class="p">()</span>
+</pre></div>
+</div>
+<p>It will output tables of contracts and methods with gas usages that look like this:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>                            DAI Gas
+
+  Method           Times called    Min.    Max.    Mean   Median
+ ────────────────────────────────────────────────────────────────
+  balanceOf                   <span class="m">4</span>   <span class="m">1302</span>    <span class="m">13028</span>   <span class="m">1302</span>    <span class="m">1302</span>
+  allowance                   <span class="m">2</span>   <span class="m">1377</span>    <span class="m">1377</span>    <span class="m">1337</span>    <span class="m">1337</span>
+│ approve                     <span class="m">1</span>   <span class="m">22414</span>   <span class="m">22414</span>   <span class="m">22414</span>   <span class="m">22414</span>
+│ burn                        <span class="m">1</span>   <span class="m">11946</span>   <span class="m">11946</span>   <span class="m">11946</span>   <span class="m">11946</span>
+│ mint                        <span class="m">1</span>   <span class="m">25845</span>   <span class="m">25845</span>   <span class="m">25845</span>   <span class="m">25845</span>
 </pre></div>
 </div>
 </section>
