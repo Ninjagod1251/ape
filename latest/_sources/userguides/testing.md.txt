@@ -98,6 +98,15 @@ test:
   number_of_accounts: 5
 ```
 
+If you are running tests against `anvil`, your generated test accounts may not correspond to the `anvil`'s default generated accounts despite using the same mnemonic. In such a case, you are able to specify a custom derivation path in `ape-config.yaml`:
+
+```yaml
+test:
+  mnemonic: test test test test test test test test test test test junk
+  number_of_accounts: 5
+  hd_path: "m/44'/60'/0'/0/{}"
+```
+
 If you are using a fork-provider, such as [Hardhat](https://github.com/ApeWorX/ape-hardhat), you can use impersonated accounts by accessing random addresses off the fixture:
 
 ```python
@@ -169,6 +178,18 @@ def my_contract(project, owner):
 
 It has the same interface as the [ProjectManager](../methoddocs/managers.html#module-ape.managers.project.manager).
 
+### Contract fixture
+
+Use the `Contract` fixture to create contract instances:
+
+```python
+@pytest.fixture
+def my_contract(Contract):
+    return Contract(<address>)
+```
+
+It has the same interface as the [ChainManager](../methoddocs/managers.html#ape.managers.chain.ChainManager).
+
 ## Ape testing commands
 
 ```bash
@@ -214,6 +235,7 @@ project                     # The root project directory
     └── test_accounts.py    # A test file, if you want to ONLY run one test file you can use 'ape test test_accounts.py' command
     └── test_mint.py        # A test file
 ```
+
 Here is an example of a test function from a sample [NFT project](https://github.com/ApeAcademy/ERC721)
 
 ```python
@@ -246,6 +268,14 @@ def test_authorization(my_contract, owner, not_owner):
 
 This is the expected revert reason given when the transaction fails.
 If the message in the `ContractLogicError` raised by the transaction failure is empty or does not match the `expected_message`, then `ape.reverts()` will raise an `AssertionError`.
+
+You may also supply an `re.Pattern` object to assert on a message pattern, rather than on an exact match.
+
+```python
+# Matches explicitly "foo" or "bar"
+with ape.reverts(re.compile(r"^(foo|bar)$")):
+    ...
+```
 
 ### `dev_message`
 
@@ -280,11 +310,20 @@ def test_authorization(my_contract, owner):
 When the transaction reverts and `ContractLogicError` is raised, `ape.reverts()` will check the source contract to see if the failed line contains a message.
 
 There are a few scenarios where `AssertionError` will be raised when using `dev_message`:
+
 - If the line in the source contract has a different dev message or no dev message
 - If the contract source cannot be obtained
 - If the transaction trace cannot be obtained
 
 Because `dev_message` relies on transaction tracing to function, you must use a provider like [ape-hardhat](https://github.com/ApeWorX/ape-hardhat) when testing with `dev_message`.
+
+You may also supply an `re.Pattern` object to assert on a dev message pattern, rather than on an exact match.
+
+```python
+# Matches explictly "dev: foo" or "dev: bar"
+with ape.reverts(dev_message=re.compile(r"^dev: (foo|bar)$")):
+    ...
+```
 
 ### Caveats
 
@@ -320,14 +359,118 @@ def foo():
     self._foo_internal()  # dev: incorrect location
 ```
 
+### Custom Errors
+
+As of Solidity 0.8.4, custom errors have been introduced to the ABI.
+To make assertions on custom errors, you can use the types defined on your contracts.
+
+For example, if I have a contract called `MyContract.sol`:
+
+```solidity
+// SPDX-License-Identifier: GPL-3.0
+pragma solidity ^0.8.4;
+
+error Unauthorized(address unauth_address);
+
+contract MyContract {
+    address payable owner = payable(msg.sender);
+    function withdraw() public {
+        if (msg.sender != owner)
+            revert Unauthorized(msg.sender);
+        owner.transfer(address(this).balance);
+    }
+}
+```
+
+I can ensure unauthorized withdraws are disallowed by writing the following test:
+
+```python
+import ape
+import pytest
+
+@pytest.fixture
+def owner(accounts):
+    return accounts[0]
+
+@pytest.fixture
+def hacker(accounts):
+    return accounts[1]
+
+@pytest.fixture
+def contract(owner, project):
+    return owner.deploy(project.MyContract)
+
+def test_unauthorized_withdraw(contract, hacker):
+    with ape.reverts(contract.Unauthorized, unauth_address=hacker.address):
+        contract.withdraw(sender=hacker)
+```
+
+You can also use custom error types from the contract container (from `ape.project` or the `project` fixture):
+
+```python
+import ape
+
+def test_unauthorized(contract, hacker, project):
+    with ape.reverts(project.MyContract.Unauthorized, unauth_address=hacker.address):
+        contract.withdraw(sender=hacker)
+```
+
+You may need to use the container approach for asserting on custom errors that occur during failing `deploy` transactions because you won't have access to the contract instance yet.
+Here is an example of what that may look like:
+
+```python
+import ape
+
+def test_error_on_deploy(account, project):
+    with ape.reverts(project.Token.MyCustomError):
+        ape.project.HasError.deploy(sender=account)
+```
+
+Alternatively, you can attempt to use the address from the revert error to find the error type.
+**NOTE**: The address will only exist for transactions that were published (e.g. not for failures during estimating gas), and this may only work on certain providers.
+
+```python
+import ape
+
+def test_error_on_deploy(account):
+    # NOTE: We are using `as rev` here to capture the revert info
+    # so we can attempt to lookup the contract later.
+    with ape.reverts() as rev:
+        ape.project.HasError.deploy(sender=account)
+    
+    assert rev.value.address is not None, "Receipt never found, contract never cached"
+    
+    # Grab the cached instance using the error's address
+    # and assert the custom error this way.
+    contract = ape.Contract(rev.value.address)
+    assert isinstance(rev.value, contract.MyError)
+```
+
 ## Multi-chain Testing
 
-The Ape framework supports connecting to alternative providers in tests.
-The easiest way to achieve this is to use the `networks` provider context-manager.
+The Ape framework supports connecting to alternative networks / providers in tests.
+
+To run an entire test using a specific network / provider combination, use the `use_network` pytest marker:
+
+```python
+import pytest
+
+
+@pytest.mark.use_network("fantom:local:test")
+def test_my_fantom_test(chain):
+    assert chain.provider.network.ecosystem.name == "fantom"
+
+
+@pytest.mark.use_network("ethereum:local:test")
+def test_my_ethereum_test(chain):
+    assert chain.provider.network.ecosystem.name == "ethereum"
+```
+
+To switch networks mid-test, use the `networks` context-manager:
 
 ```python
 # Switch to Fantom mid test
-def test_my_fantom_test(networks):
+def test_my_multichain_test(networks):
     # The test starts in 1 ecosystem but switches to another
     assert networks.provider.network.ecosystem.name == "ethereum"
 
@@ -339,7 +482,8 @@ def test_my_fantom_test(networks):
        assert provider.network.ecosystem.name == "fantom"
 ```
 
-You can also set the network context in a context-manager pytest fixture:
+You can also set the network context in a pytest fixture.
+This is useful if certain fixtures must run in certain networks.
 
 ```python
 import pytest
@@ -439,3 +583,90 @@ While in this mode, any time a `.py` file (i.e. your tests) or smart contract so
 or changed, then the `ape test` task will be re-triggered, based on a polling interval.
 
 To exit this mode, press Ctrl+D (on Linux or macOS) to stop the execution and undo it.
+
+## Contract Coverage
+
+To get contract coverage, use the `--coverage` flag when running `ape test`:
+
+```shell
+ape test --coverage
+```
+
+**NOTE**: Some types of coverage require using a provider that supports transaction tracing, such as `ape-hardhat` or `ape-foundry`.
+
+Afterwards, you should see a coverage report looking something like:
+
+```shell
+============================================= Coverage Profile =============================================
+               Contract Coverage               
+                                               
+  Name          Stmts   Miss   Cover    Funcs  
+ ───────────────────────────────────────────── 
+  Contract.vy   7       1      85.71%   80.0% 
+```
+
+To generate other coverage reports such as XML or HTML, configure it like so:
+
+```yaml
+test:
+  coverage:
+    reports:
+      terminal: False  # Disable the terminal table (True by default)
+      xml: True  # Enable XML report (.build/coverage.xml)
+      html: True  # Enable HTML report (.build/htmlcov)
+```
+
+To see a much more verbose coverage report, set the `terminal` field to a dictionary that includes `"verbose": true`:
+
+```yaml
+test:
+  coverage:
+    reports:
+      terminal:
+        verbose: true  # Show verbose coverage information in the terminal.
+```
+
+Then, you will see table outputs like this:
+
+```shell
+===================================== Coverage Profile ========================================
+                MyContract Coverage
+
+                         Func   Stmts   Miss    Cover
+ ─────────────────────────────────────────────────────
+                  __builtin__       2      0   100.0%
+            _immutable_number       0      0   100.0%
+                      _number       0      0   100.0%
+                 foo_method()       1      0   100.0%
+          foo_method(uint256)       1      0   100.0%
+  foo_method(uint256,uint256)       3      0   100.0%
+                  view_method       1      0   100.0%
+
+           line=0.0%, func=0.0%
+```
+
+This is useful when trying to find the missing areas to cover.
+The HTML report also supports `verbose: true` and it will show similar tables.
+
+**NOTE**: You may notice methods with zero statements.
+One example of a method with zero statements may be from an auto-generated getter method for a public variable; certain versions of Vyper do not contain source mappings for these methods.
+However, Ape will still check to see if this method has been called in your tests.
+To get 100% coverage, you must call these methods in your tests.
+
+**NOTE**: Notice some methods use the full selector while others don't.
+Methods that use the selector mean that their short name is shared with other methods.
+This happens in Vyper from auto-generated kwarg-based methods.
+Thus, the full selector is used to distinguish the methods in the coverage (and gas) reports.
+
+Much like gas reporting, you can also exclude contracts and methods from tracking coverage using your `ape-config.yaml` file.
+The following demonstrates how to do this:
+
+```yaml
+test:
+  coverage:
+    exclude:
+      - method_name: DEBUG_*         # Exclude all methods starting with `DEBUG_`.
+      - contract_name: MockToken     # Exclude all methods in contract named `MockToken`.
+      - contract_name: PoolContract  # Exclude methods starting with `reset_` in `PoolContract`.
+        method_name: reset_*
+```

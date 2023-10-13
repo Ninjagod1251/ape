@@ -1,13 +1,10 @@
 <!DOCTYPE html>
 <html class="writer-html5" lang="en" >
 <head>
-  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.17.1: http://docutils.sourceforge.net/" />
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Contracts &mdash; ape  documentation</title>
-  <link rel="stylesheet" href="/ape/latest/_static/css/theme.css" type="text/css" />
-  <link rel="stylesheet" href="/ape/latest/_static/pygments.css" type="text/css" />
-  <link rel="stylesheet" href="/ape/latest/_static/custom.css" type="text/css" />
       <link rel="stylesheet" href="/ape/latest/_static/pygments.css" type="text/css" />
       <link rel="stylesheet" href="/ape/latest/_static/css/theme.css" type="text/css" />
       <link rel="stylesheet" href="/ape/latest/_static/custom.css" type="text/css" />
@@ -16,11 +13,13 @@
   <!--[if lt IE 9]>
     <script src="../_static/js/html5shiv.min.js"></script>
   <![endif]-->
-  <script id="documentation_options" data-url_root="../" src="../_static/documentation_options.js"></script>
-        <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
+  
         <script src="../_static/jquery.js"></script>
-        <script src="../_static/underscore.js"></script>
+        <script src="../_static/_sphinx_javascript_frameworks_compat.js"></script>
+        <script data-url_root="../" id="documentation_options" src="../_static/documentation_options.js"></script>
         <script src="../_static/doctools.js"></script>
+        <script src="../_static/sphinx_highlight.js"></script>
+        <script data-domain="docs.apeworx.io" defer="defer" src="https://plausible.io/js/script.js"></script>
     <script src="../_static/js/theme.js"></script>
     <script src="../_static/custom.js"></script>
   <script>
@@ -28,7 +27,7 @@
   </script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Testing" href="testing.html" />
+    <link rel="next" title="Proxy Contracts" href="proxy.html" />
     <link rel="prev" title="Ape Console" href="console.html" /> 
 </head>
 
@@ -37,8 +36,12 @@
     <nav data-toggle="wy-nav-shift" class="wy-nav-side">
       <div class="wy-side-scroll">
         <div class="wy-side-nav-search" >
-            <a href="../index.html" class="icon icon-home"> ape
-            <img src="../_static/logo.gif" class="logo" alt="Logo"/>
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            ape
+              <img src="../_static/logo.gif" class="logo" alt="Logo"/>
           </a>
 
           <div class="version">
@@ -47,25 +50,86 @@
               <option value="">Select version...</option>
               <option value="latest">latest</option>
               <option value="stable">stable</option>
+                <option value="v0.6.22">v0.6.22</option>
+                <option value="v0.6.21">v0.6.21</option>
+                <option value="v0.6.20">v0.6.20</option>
+                <option value="v0.6.19">v0.6.19</option>
+                <option value="v0.6.18">v0.6.18</option>
+                <option value="v0.6.17">v0.6.17</option>
+                <option value="v0.6.16">v0.6.16</option>
+                <option value="v0.6.15">v0.6.15</option>
+                <option value="v0.6.14">v0.6.14</option>
+                <option value="v0.6.13">v0.6.13</option>
+                <option value="v0.6.12">v0.6.12</option>
+                <option value="v0.6.11">v0.6.11</option>
+                <option value="v0.6.10">v0.6.10</option>
+                <option value="v0.6.9">v0.6.9</option>
+                <option value="v0.6.8">v0.6.8</option>
+                <option value="v0.6.7">v0.6.7</option>
+                <option value="v0.6.6">v0.6.6</option>
+                <option value="v0.6.5">v0.6.5</option>
+                <option value="v0.6.4">v0.6.4</option>
+                <option value="v0.6.3">v0.6.3</option>
+                <option value="v0.6.2">v0.6.2</option>
+                <option value="v0.6.1">v0.6.1</option>
+                <option value="v0.6.0">v0.6.0</option>
+                <option value="v0.5.9">v0.5.9</option>
+                <option value="v0.5.8">v0.5.8</option>
+                <option value="v0.5.7">v0.5.7</option>
+                <option value="v0.5.6">v0.5.6</option>
+                <option value="v0.5.5">v0.5.5</option>
+                <option value="v0.5.4">v0.5.4</option>
+                <option value="v0.5.3">v0.5.3</option>
+                <option value="v0.5.2">v0.5.2</option>
+                <option value="v0.5.1">v0.5.1</option>
+                <option value="v0.5.0">v0.5.0</option>
+                <option value="v0.4.5">v0.4.5</option>
+                <option value="v0.4.4">v0.4.4</option>
+                <option value="v0.4.3">v0.4.3</option>
+                <option value="v0.4.2">v0.4.2</option>
+                <option value="v0.4.1">v0.4.1</option>
+                <option value="v0.4.0">v0.4.0</option>
+                <option value="v0.3.5">v0.3.5</option>
+                <option value="v0.3.4">v0.3.4</option>
+                <option value="v0.3.3">v0.3.3</option>
+                <option value="v0.3.2">v0.3.2</option>
+                <option value="v0.3.1">v0.3.1</option>
+                <option value="v0.3.0">v0.3.0</option>
+                <option value="v0.2.8">v0.2.8</option>
+                <option value="v0.2.7">v0.2.7</option>
+                <option value="v0.2.6">v0.2.6</option>
+                <option value="v0.2.5">v0.2.5</option>
+                <option value="v0.2.4">v0.2.4</option>
+                <option value="v0.2.3">v0.2.3</option>
+                <option value="v0.2.2">v0.2.2</option>
+                <option value="v0.2.1">v0.2.1</option>
+                <option value="v0.2.0">v0.2.0</option>
+                <option value="v0.1.6">v0.1.6</option>
+                <option value="v0.1.5">v0.1.5</option>
+                <option value="v0.1.4">v0.1.4</option>
+                <option value="v0.1.3">v0.1.3</option>
+                <option value="v0.1.1">v0.1.1</option>
+                <option value="v0.1.0">v0.1.0</option>
             </select>
           </div>
 <div role="search">
   <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
-    <input type="text" name="q" placeholder="Search docs" />
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
     <input type="hidden" name="check_keywords" value="yes" />
     <input type="hidden" name="area" value="default" />
   </form>
 </div>
-        </div>
-        <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Main">
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
               <p class="caption" role="heading"><span class="caption-text">User Guides</span></p>
 <ul class="current">
-<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quick Start</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Overview</a></li>
 <li class="toctree-l1"><a class="reference internal" href="accounts.html">Accounts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="installing_plugins.html">Plugins</a></li>
 <li class="toctree-l1"><a class="reference internal" href="projects.html">Developing Projects with Ape</a></li>
+<li class="toctree-l1"><a class="reference internal" href="dependencies.html">Dependencies</a></li>
 <li class="toctree-l1"><a class="reference internal" href="compile.html">Compile</a></li>
-<li class="toctree-l1"><a class="reference internal" href="cache.html">Cache</a></li>
+<li class="toctree-l1"><a class="reference internal" href="clis.html">CLIs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="data.html">Querying Data</a></li>
 <li class="toctree-l1"><a class="reference internal" href="networks.html">Networks</a></li>
 <li class="toctree-l1"><a class="reference internal" href="developing_plugins.html">Developing Plugins</a></li>
 <li class="toctree-l1"><a class="reference internal" href="config.html">Configure Ape</a></li>
@@ -75,18 +139,28 @@
 <li class="toctree-l2"><a class="reference internal" href="#from-deploy">From Deploy</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#from-project-contract-address">From Project Contract Address</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#from-any-address">From Any Address</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#from-abis">From ABIs</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#from-previous-deployment">From Previous Deployment</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#contract-interaction">Contract Interaction</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#contract-interaction">Contract Interaction</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#default-fallback-and-direct-calls">Default, Fallback, and Direct Calls</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#private-transactions">Private Transactions</a></li>
 </ul>
 </li>
+<li class="toctree-l2"><a class="reference internal" href="#decoding-and-encoding-inputs">Decoding and Encoding Inputs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#multi-call-and-multi-transaction">Multi-Call and Multi-Transaction</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="proxy.html">Proxy Contracts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="testing.html">Testing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="scripts.html">Scripting</a></li>
 <li class="toctree-l1"><a class="reference internal" href="publishing.html">Publishing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="logging.html">Logging</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">CLI Reference</span></p>
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="../commands/accounts.html">accounts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../commands/compile.html">compile</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../commands/pm.html">pm</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../commands/console.html">console</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../commands/init.html">init</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../commands/networks.html">networks</a></li>
@@ -111,8 +185,7 @@
       </div>
     </nav>
 
-    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
-      <nav class="wy-nav-top" aria-label="Top" >
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
           <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
           <a href="../index.html">ape</a>
       </nav>
@@ -121,7 +194,7 @@
         <div class="rst-content">
           <div role="navigation" aria-label="Page navigation">
   <ul class="wy-breadcrumbs">
-      <li><a href="../index.html" class="icon icon-home"></a></li>
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
       <li class="breadcrumb-item active">Contracts</li>
       <li class="wy-breadcrumbs-aside">
             <a href="../_sources/userguides/contracts.md.txt" rel="nofollow"> View page source</a>
@@ -133,13 +206,13 @@
            <div itemprop="articleBody">
              
   <section id="contracts">
-<h1>Contracts<a class="headerlink" href="#contracts" title="Permalink to this headline"></a></h1>
+<h1>Contracts<a class="headerlink" href="#contracts" title="Permalink to this heading"></a></h1>
 <p>You can interact with contracts pythonically using ape!
 First, we need to obtain a contract instance.
 One way to do this is to deploy a contract.
 The other way is to initialize an already-deployed contract using its address.</p>
 <section id="from-deploy">
-<h2>From Deploy<a class="headerlink" href="#from-deploy" title="Permalink to this headline"></a></h2>
+<h2>From Deploy<a class="headerlink" href="#from-deploy" title="Permalink to this heading"></a></h2>
 <p>Deploy contracts from your project using the <code class="docutils literal notranslate"><span class="pre">project</span></code> root-level object.
 The names of your contracts are properties on the <code class="docutils literal notranslate"><span class="pre">project</span></code> object (e.g. <code class="docutils literal notranslate"><span class="pre">project.MyContract</span></code>) and their types are <a class="reference external" href="../methoddocs/contracts.html#ape.contracts.base.ContractContainer">ContractContainer</a>.</p>
 <p><strong>NOTE</strong>: To avoid naming collisions with other properties on the <code class="docutils literal notranslate"><span class="pre">project</span></code> object, you can also use the <a class="reference external" href="../methoddocs/managers.html#ape.managers.project.manager.ProjectManager.get_contract">get_contract()</a> method to retrieve contract containers.</p>
@@ -150,9 +223,43 @@ The names of your contracts are properties on the <code class="docutils literal 
 <span class="n">contract</span> <span class="o">=</span> <span class="n">project</span><span class="o">.</span><span class="n">MyContract</span><span class="o">.</span><span class="n">deploy</span><span class="p">(</span><span class="n">sender</span><span class="o">=</span><span class="n">dev</span><span class="p">)</span>
 </pre></div>
 </div>
+<p>You can alternatively use this syntax instead:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">ape</span> <span class="kn">import</span> <span class="n">accounts</span><span class="p">,</span> <span class="n">project</span>
+
+<span class="n">dev</span> <span class="o">=</span> <span class="n">accounts</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;dev&quot;</span><span class="p">)</span>
+<span class="n">contract</span> <span class="o">=</span> <span class="n">dev</span><span class="o">.</span><span class="n">deploy</span><span class="p">(</span><span class="n">project</span><span class="o">.</span><span class="n">MyContract</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>If your contract requires constructor arguments then you will need to pass them to the contract in the <a class="reference external" href="./transactions.html">args</a> when deploying like this:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">ape</span> <span class="kn">import</span> <span class="n">accounts</span><span class="p">,</span> <span class="n">project</span>
+
+<span class="n">dev</span> <span class="o">=</span> <span class="n">accounts</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;dev&quot;</span><span class="p">)</span>
+<span class="n">contract</span> <span class="o">=</span> <span class="n">project</span><span class="o">.</span><span class="n">MyContract</span><span class="o">.</span><span class="n">deploy</span><span class="p">(</span><span class="s2">&quot;argument1&quot;</span><span class="p">,</span> <span class="s2">&quot;argument2&quot;</span><span class="p">,</span> <span class="n">sender</span><span class="o">=</span><span class="n">dev</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>you can alternatively use this syntax instead:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">ape</span> <span class="kn">import</span> <span class="n">accounts</span><span class="p">,</span> <span class="n">project</span>
+
+<span class="n">dev</span> <span class="o">=</span> <span class="n">accounts</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;dev&quot;</span><span class="p">)</span>
+<span class="n">contract</span> <span class="o">=</span> <span class="n">accounts</span><span class="o">.</span><span class="n">dev</span><span class="o">.</span><span class="n">deploy</span><span class="p">(</span><span class="n">project</span><span class="o">.</span><span class="n">MyContract</span><span class="p">,</span> <span class="s2">&quot;argument1&quot;</span><span class="p">,</span> <span class="s2">&quot;argument2&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>With this technique, you can feed as many constructor arguments as your contract constructor requires.</p>
+<p><strong>NOTE</strong>: You can also publish the contract source code to an explorer upon deployment using the <code class="docutils literal notranslate"><span class="pre">publish=</span></code> kwarg on the deploy methods.
+More information on publishing contracts can be found in <a class="reference external" href="./publishing.html">this guide</a>.</p>
+<p>If you do not pass the correct amount of constructor arguments when deploying, you will get an error showing your arguments don’t match what is in the ABI:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>ArgumentsLengthError:<span class="w"> </span>The<span class="w"> </span>number<span class="w"> </span>of<span class="w"> </span>the<span class="w"> </span>given<span class="w"> </span>arguments<span class="w"> </span><span class="o">(</span><span class="m">0</span><span class="o">)</span><span class="w"> </span><span class="k">do</span><span class="w"> </span>not<span class="w"> </span>match<span class="w"> </span>what<span class="w"> </span>is<span class="w"> </span>defined<span class="w"> </span><span class="k">in</span><span class="w"> </span>the<span class="w"> </span>ABI<span class="w"> </span><span class="o">(</span><span class="m">2</span><span class="o">)</span>.
+</pre></div>
+</div>
+<p>In this case it is saying that you have fed 0 constructor arguments but the contract requires 2 constructor arguments to deploy.</p>
+<p>To show the arguments that your constructor requires you can use the .constructor method to see the constructor arguments that your contract requires:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">In</span> <span class="p">[</span><span class="mi">0</span><span class="p">]:</span> <span class="n">project</span><span class="o">.</span><span class="n">MyContract</span><span class="o">.</span><span class="n">constructor</span>
+<span class="n">Out</span><span class="p">[</span><span class="mi">0</span><span class="p">]:</span> <span class="n">constructor</span><span class="p">(</span><span class="n">string</span> <span class="n">argument1</span><span class="p">,</span> <span class="n">string</span> <span class="n">argument2</span><span class="p">)</span>
+</pre></div>
+</div>
 </section>
 <section id="from-project-contract-address">
-<h2>From Project Contract Address<a class="headerlink" href="#from-project-contract-address" title="Permalink to this headline"></a></h2>
+<h2>From Project Contract Address<a class="headerlink" href="#from-project-contract-address" title="Permalink to this heading"></a></h2>
 <p>You can also use the <a class="reference external" href="../methoddocs/contracts.html#ape.contracts.base.ContractContainer.at">at() method</a> from the same top-level project manager when you know the address of an already-deployed contract:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">ape</span> <span class="kn">import</span> <span class="n">project</span>
 
@@ -161,7 +268,7 @@ The names of your contracts are properties on the <code class="docutils literal 
 </div>
 </section>
 <section id="from-any-address">
-<h2>From Any Address<a class="headerlink" href="#from-any-address" title="Permalink to this headline"></a></h2>
+<h2>From Any Address<a class="headerlink" href="#from-any-address" title="Permalink to this heading"></a></h2>
 <p>If you already know the address of a contract, you can create instances of it using the <code class="docutils literal notranslate"><span class="pre">Contract</span></code> top-level factory:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">ape</span> <span class="kn">import</span> <span class="n">Contract</span>
 
@@ -176,8 +283,32 @@ The names of your contracts are properties on the <code class="docutils literal 
 </pre></div>
 </div>
 </section>
+<section id="from-abis">
+<h2>From ABIs<a class="headerlink" href="#from-abis" title="Permalink to this heading"></a></h2>
+<p>You can load contracts using their ABIs:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">ape</span> <span class="kn">import</span> <span class="n">Contract</span>
+
+<span class="n">address</span> <span class="o">=</span> <span class="s2">&quot;0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45&quot;</span>
+
+<span class="c1"># Using a JSON str:</span>
+<span class="n">contract</span> <span class="o">=</span> <span class="n">Contract</span><span class="p">(</span>
+    <span class="n">address</span><span class="p">,</span> <span class="n">abi</span><span class="o">=</span><span class="s1">&#39;[{&quot;name&quot;:&quot;foo&quot;,&quot;type&quot;:&quot;fallback&quot;, &quot;stateMutability&quot;:&quot;nonpayable&quot;}]&#39;</span>
+<span class="p">)</span>
+
+<span class="c1"># Using a JSON file path:</span>
+<span class="n">contract</span> <span class="o">=</span> <span class="n">Contract</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">abi</span><span class="o">=</span><span class="s2">&quot;abi.json&quot;</span><span class="p">)</span>
+
+<span class="c1"># Using a Python dictionary from JSON:</span>
+<span class="n">contract</span> <span class="o">=</span> <span class="n">Contract</span><span class="p">(</span>
+    <span class="n">address</span><span class="p">,</span>
+    <span class="n">abi</span><span class="o">=</span><span class="p">[{</span><span class="s2">&quot;name&quot;</span><span class="p">:</span><span class="s2">&quot;foo&quot;</span><span class="p">,</span><span class="s2">&quot;type&quot;</span><span class="p">:</span><span class="s2">&quot;fallback&quot;</span><span class="p">,</span> <span class="s2">&quot;stateMutability&quot;</span><span class="p">:</span><span class="s2">&quot;nonpayable&quot;</span><span class="p">}]</span>
+<span class="p">)</span>
+</pre></div>
+</div>
+<p>This will create the Contract instance from the given ABI.</p>
+</section>
 <section id="from-previous-deployment">
-<h2>From Previous Deployment<a class="headerlink" href="#from-previous-deployment" title="Permalink to this headline"></a></h2>
+<h2>From Previous Deployment<a class="headerlink" href="#from-previous-deployment" title="Permalink to this heading"></a></h2>
 <p>Ape keeps track of your deployments for you so you can always refer back to a version that you deployed previously.
 On live networks, this history of deployments is saved; on local networks, this history lasts for the duration of your script.</p>
 <p>Let’s say you previously deployed a smart contract called <code class="docutils literal notranslate"><span class="pre">MyContract</span></code> on the rinkeby test network.
@@ -201,7 +332,7 @@ You could then refer back to it like so:</p>
 <code class="docutils literal notranslate"><span class="pre">get_deployments</span></code> returns a list of deployments you made of that contract type.</p>
 </section>
 <section id="contract-interaction">
-<h2>Contract Interaction<a class="headerlink" href="#contract-interaction" title="Permalink to this headline"></a></h2>
+<h2>Contract Interaction<a class="headerlink" href="#contract-interaction" title="Permalink to this heading"></a></h2>
 <p>Then, after you have a contract instance, you can call methods on the contract.
 For example, let’s say you have a Vyper contract containing some functions:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="nd">@pure</span>
@@ -223,6 +354,99 @@ For example, let’s say you have a Vyper contract containing some functions:</p
 <span class="n">receipt</span> <span class="o">=</span> <span class="n">contract</span><span class="o">.</span><span class="n">set_number</span><span class="p">(</span><span class="n">sender</span><span class="o">=</span><span class="n">dev</span><span class="p">)</span>
 </pre></div>
 </div>
+<section id="default-fallback-and-direct-calls">
+<h3>Default, Fallback, and Direct Calls<a class="headerlink" href="#default-fallback-and-direct-calls" title="Permalink to this heading"></a></h3>
+<p>To directly call an address, such as invoking a contract’s <code class="docutils literal notranslate"><span class="pre">fallback</span></code> or <code class="docutils literal notranslate"><span class="pre">receive</span></code> method, call a contract instance directly:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">ape</span> <span class="kn">import</span> <span class="n">Contract</span><span class="p">,</span> <span class="n">accounts</span>
+
+<span class="n">sender</span> <span class="o">=</span> <span class="n">accounts</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;dev&quot;</span><span class="p">)</span>
+<span class="n">contract</span> <span class="o">=</span> <span class="n">Contract</span><span class="p">(</span><span class="s2">&quot;0x123...&quot;</span><span class="p">)</span>
+
+<span class="c1"># Call the contract&#39;s fallback method.</span>
+<span class="n">receipt</span> <span class="o">=</span> <span class="n">contract</span><span class="p">(</span><span class="n">sender</span><span class="o">=</span><span class="n">sender</span><span class="p">,</span> <span class="n">gas</span><span class="o">=</span><span class="mi">40000</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="s2">&quot;0x123&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="private-transactions">
+<h3>Private Transactions<a class="headerlink" href="#private-transactions" title="Permalink to this heading"></a></h3>
+<p>If you are using a provider that allows private mempool transactions, you are able to use the <code class="docutils literal notranslate"><span class="pre">private=True</span></code> kwarg to publish your transaction into a private mempool.
+For example, EVM providers likely will use the <code class="docutils literal notranslate"><span class="pre">eth_sendPrivateTransaction</span></code> RPC to achieve this.</p>
+<p>To send a private transaction, do the following:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">receipt</span> <span class="o">=</span> <span class="n">contract</span><span class="o">.</span><span class="n">set_number</span><span class="p">(</span><span class="n">sender</span><span class="o">=</span><span class="n">dev</span><span class="p">,</span> <span class="n">private</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>The <code class="docutils literal notranslate"><span class="pre">private=True</span></code> is available on all contract interactions.</p>
+</section>
+</section>
+<section id="decoding-and-encoding-inputs">
+<h2>Decoding and Encoding Inputs<a class="headerlink" href="#decoding-and-encoding-inputs" title="Permalink to this heading"></a></h2>
+<p>If you want to separately decode and encode inputs without sending a transaction or making a call, you can achieve this with Ape.
+If you know the method you want to use when decoding or encoding, you can call methods <code class="docutils literal notranslate"><span class="pre">encode_input()</span></code> or <code class="docutils literal notranslate"><span class="pre">decode_input()</span></code> on the method handler from a contract:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">ape</span> <span class="kn">import</span> <span class="n">Contract</span>
+
+<span class="c1"># HexBytes(0x3fb5c1cb00000000000000000000000000000000000000000000000000000000000000de)</span>
+<span class="n">contract</span> <span class="o">=</span> <span class="n">Contract</span><span class="p">(</span><span class="s2">&quot;0x...&quot;</span><span class="p">)</span>
+<span class="n">bytes_value</span> <span class="o">=</span> <span class="n">contract</span><span class="o">.</span><span class="n">my_method</span><span class="o">.</span><span class="n">encode_input</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>In the example above, the bytes value returned contains the method ID selector prefix <code class="docutils literal notranslate"><span class="pre">3fb5c1c</span></code>.
+Alternatively, you can decode input:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">ethpm_types</span> <span class="kn">import</span> <span class="n">HexBytes</span>
+<span class="kn">from</span> <span class="nn">ape</span> <span class="kn">import</span> <span class="n">Contract</span>
+
+<span class="n">contract</span> <span class="o">=</span> <span class="n">Contract</span><span class="p">(</span><span class="s2">&quot;0x...&quot;</span><span class="p">)</span>
+<span class="n">selector_str</span><span class="p">,</span> <span class="n">input_dict</span> <span class="o">=</span> <span class="n">contract</span><span class="o">.</span><span class="n">my_method</span><span class="o">.</span><span class="n">decode_input</span><span class="p">(</span><span class="n">HexBytes</span><span class="p">(</span><span class="s2">&quot;0x123...&quot;</span><span class="p">))</span>
+</pre></div>
+</div>
+<p>In the example above, <code class="docutils literal notranslate"><span class="pre">selector_str</span></code> is the string version of the method ID, e.g. <code class="docutils literal notranslate"><span class="pre">my_method(unit256,uint256)</span></code>.
+The input dict is a mapping of input names to their decoded values, e.g <code class="docutils literal notranslate"><span class="pre">{&quot;foo&quot;:</span> <span class="pre">2,</span> <span class="pre">&quot;owner&quot;:</span> <span class="pre">&quot;0x123...&quot;}</span></code>.
+If an input does not have a name, its key is its stringified input index.</p>
+<p>If you don’t know the method’s ABI and you have calldata, you can use a <code class="docutils literal notranslate"><span class="pre">ContractInstance</span></code> or <code class="docutils literal notranslate"><span class="pre">ContractContainer</span></code> directly:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">ape</span>
+
+<span class="c1"># Fetch a contract</span>
+<span class="n">contract</span> <span class="o">=</span> <span class="n">ape</span><span class="o">.</span><span class="n">Contract</span><span class="p">(</span><span class="s2">&quot;0x...&quot;</span><span class="p">)</span>
+
+<span class="c1"># Alternative, use a contract container from ape.project</span>
+<span class="c1"># contract = ape.project.MyContract</span>
+
+<span class="c1"># Only works if unique amount of args.</span>
+<span class="n">bytes_value</span> <span class="o">=</span> <span class="n">contract</span><span class="o">.</span><span class="n">encode_input</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
+<span class="n">method_id</span><span class="p">,</span> <span class="n">input_dict</span> <span class="o">=</span> <span class="n">contract</span><span class="o">.</span><span class="n">decode_input</span><span class="p">(</span><span class="n">bytes_value</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="multi-call-and-multi-transaction">
+<h2>Multi-Call and Multi-Transaction<a class="headerlink" href="#multi-call-and-multi-transaction" title="Permalink to this heading"></a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">ape_ethereum</span></code> core plugin comes with a <code class="docutils literal notranslate"><span class="pre">multicall</span></code> module containing tools for interacting with the <a class="reference external" href="https://github.com/mds1/multicall">multicall3 smart contract</a>.
+Multicall allows you to group function calls and transactions into a single call or transaction.</p>
+<p>Here is an example of how you can use the multicall module:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">ape</span>
+<span class="kn">from</span> <span class="nn">ape_ethereum</span> <span class="kn">import</span> <span class="n">multicall</span>
+
+
+<span class="n">ADDRESSES</span> <span class="o">=</span> <span class="p">(</span><span class="s2">&quot;0xF4b8A02D4e8D76070bD7092B54D2cBbe90fa72e9&quot;</span><span class="p">,</span> <span class="s2">&quot;0x80067013d7F7aF4e86b3890489AcAFe79F31a4Cb&quot;</span><span class="p">)</span>
+<span class="n">POOLS</span> <span class="o">=</span> <span class="p">[</span><span class="n">ape</span><span class="o">.</span><span class="n">project</span><span class="o">.</span><span class="n">IPool</span><span class="o">.</span><span class="n">at</span><span class="p">(</span><span class="n">a</span><span class="p">)</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">ADDRESSES</span><span class="p">]</span>
+
+
+<span class="k">def</span> <span class="nf">main</span><span class="p">():</span>
+    <span class="c1"># Use multi-call.</span>
+    <span class="n">call</span> <span class="o">=</span> <span class="n">multicall</span><span class="o">.</span><span class="n">Call</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">pool</span> <span class="ow">in</span> <span class="n">POOLS</span><span class="p">:</span>
+        <span class="n">call</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">pool</span><span class="o">.</span><span class="n">getReserves</span><span class="p">)</span>
+    
+    <span class="nb">print</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="n">call</span><span class="p">()))</span>
+    
+    <span class="c1"># Use multi-transaction.</span>
+    <span class="n">tx</span> <span class="o">=</span> <span class="n">multicall</span><span class="o">.</span><span class="n">Transaction</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">pool</span> <span class="ow">in</span> <span class="n">POOLS</span><span class="p">:</span>
+        <span class="n">tx</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">pool</span><span class="o">.</span><span class="n">ApplyDiscount</span><span class="p">,</span> <span class="mi">123</span><span class="p">)</span>
+    
+    <span class="n">acct</span> <span class="o">=</span> <span class="n">ape</span><span class="o">.</span><span class="n">accounts</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;signer&quot;</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">result</span> <span class="ow">in</span> <span class="n">tx</span><span class="p">(</span><span class="n">sender</span><span class="o">=</span><span class="n">acct</span><span class="p">):</span>
+        <span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>
+</pre></div>
+</div>
 </section>
 </section>
 
@@ -231,13 +455,13 @@ For example, let’s say you have a Vyper contract containing some functions:</p
           </div>
           <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
         <a href="console.html" class="btn btn-neutral float-left" title="Ape Console" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
-        <a href="testing.html" class="btn btn-neutral float-right" title="Testing" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+        <a href="proxy.html" class="btn btn-neutral float-right" title="Proxy Contracts" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
 
   <hr/>
 
   <div role="contentinfo">
-    <p>&#169; Copyright 2021, ApeWorX LTD.</p>
+    <p>&#169; Copyright 2023, ApeWorX LTD.</p>
   </div>
 
   Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
