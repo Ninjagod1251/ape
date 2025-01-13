@@ -2,18 +2,22 @@ import itertools
 from datetime import datetime
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import TYPE_CHECKING, Any, Optional
 from xml.dom.minidom import getDOMImplementation
 from xml.etree.ElementTree import Element, SubElement, tostring
 
 import requests
-from ethpm_types import BaseModel
-from ethpm_types.source import ContractSource, SourceLocation
+from ethpm_types.source import SourceLocation
+from pydantic import NonNegativeInt, field_validator
 
-from ape._pydantic_compat import NonNegativeInt, validator
 from ape.logging import logger
+from ape.utils.basemodel import BaseModel
 from ape.utils.misc import get_current_timestamp_ms
 from ape.version import version as ape_version
+
+if TYPE_CHECKING:
+    from ethpm_types.source import ContractSource
+
 
 _APE_DOCS_URL = "https://docs.apeworx.io/ape/stable/index.html"
 _DTD_URL = "https://raw.githubusercontent.com/cobertura/web/master/htdocs/xml/coverage-04.dtd"
@@ -133,7 +137,7 @@ class CoverageStatement(BaseModel):
     If multiple PCs share an exact location, it is only tracked as one.
     """
 
-    pcs: Set[int]
+    pcs: set[int]
     """
     The PCs for this node.
     """
@@ -165,7 +169,7 @@ class FunctionCoverage(BaseModel):
     The unique name of the function.
     """
 
-    statements: List[CoverageStatement] = []
+    statements: list[CoverageStatement] = []
     """
     For statement coverage, these are the individual items.
     See :class:`~ape.types.coverage.CoverageStatement` for more details.
@@ -211,8 +215,8 @@ class FunctionCoverage(BaseModel):
         # This function has hittable statements.
         return self.lines_covered / self.lines_valid if self.lines_valid > 0 else 0
 
-    def dict(self, *args, **kwargs) -> dict:
-        attribs = super().dict(*args, **kwargs)
+    def model_dump(self, *args, **kwargs) -> dict:
+        attribs = super().model_dump(*args, **kwargs)
 
         # Add coverage stats.
         attribs["lines_covered"] = self.lines_covered
@@ -273,13 +277,13 @@ class ContractCoverage(BaseModel):
     The name of the contract.
     """
 
-    functions: List[FunctionCoverage] = []
+    functions: list[FunctionCoverage] = []
     """
     The coverage of each function individually.
     """
 
     @property
-    def statements(self) -> List[CoverageStatement]:
+    def statements(self) -> list[CoverageStatement]:
         """
         All valid coverage lines from every function in this contract.
         """
@@ -333,10 +337,10 @@ class ContractCoverage(BaseModel):
         if func:
             return func
 
-        raise IndexError(f"Function '{function_name}' not found.")
+        raise KeyError(f"Function '{function_name}' not found.")
 
-    def dict(self, *args, **kwargs) -> dict:
-        attribs = super().dict(*args, **kwargs)
+    def model_dump(self, *args, **kwargs) -> dict:
+        attribs = super().model_dump(*args, **kwargs)
 
         # Add coverage stats.
         attribs["lines_covered"] = self.lines_covered
@@ -373,13 +377,13 @@ class ContractSourceCoverage(BaseModel):
     The ID of the source covered.
     """
 
-    contracts: List[ContractCoverage] = []
+    contracts: list[ContractCoverage] = []
     """
     Coverage for each contract in the source file.
     """
 
     @property
-    def statements(self) -> List[CoverageStatement]:
+    def statements(self) -> list[CoverageStatement]:
         """
         All valid coverage lines from every function in every contract in this source.
         """
@@ -436,8 +440,8 @@ class ContractSourceCoverage(BaseModel):
         """
         return self.function_hits / self.total_functions if self.total_functions > 0 else 0
 
-    def dict(self, *args, **kwargs) -> dict:
-        attribs = super().dict(*args, **kwargs)
+    def model_dump(self, *args, **kwargs) -> dict:
+        attribs = super().model_dump(*args, **kwargs)
 
         # Add coverage stats.
         attribs["lines_covered"] = self.lines_covered
@@ -471,13 +475,13 @@ class CoverageProject(BaseModel):
     The name of the project being covered.
     """
 
-    sources: List[ContractSourceCoverage] = []
+    sources: list[ContractSourceCoverage] = []
     """
     Coverage for each source in the project.
     """
 
     @property
-    def statements(self) -> List[CoverageStatement]:
+    def statements(self) -> list[CoverageStatement]:
         """
         All valid coverage lines from every function in every contract in every source
         in this project.
@@ -535,8 +539,8 @@ class CoverageProject(BaseModel):
         """
         return self.function_hits / self.total_functions if self.total_functions > 0 else 0
 
-    def dict(self, *args, **kwargs) -> dict:
-        attribs = super().dict(*args, **kwargs)
+    def model_dump(self, *args, **kwargs) -> dict:
+        attribs = super().model_dump(*args, **kwargs)
 
         # Add coverage stats.
         attribs["lines_covered"] = self.lines_covered
@@ -545,7 +549,7 @@ class CoverageProject(BaseModel):
 
         return attribs
 
-    def include(self, contract_source: ContractSource) -> ContractSourceCoverage:
+    def include(self, contract_source: "ContractSource") -> ContractSourceCoverage:
         for src in self.sources:
             if src.source_id == contract_source.source_id:
                 return src
@@ -560,7 +564,7 @@ class CoverageReport(BaseModel):
     Coverage report schema inspired from coverage.py.
     """
 
-    source_folders: List[Path]
+    source_folders: list[Path]
     """
     All source folders to use. This is needed for codecov.
     """
@@ -570,25 +574,26 @@ class CoverageReport(BaseModel):
     The timestamp the report was generated, in milliseconds.
     """
 
-    projects: List[CoverageProject] = []
+    projects: list[CoverageProject] = []
     """
     Each project with individual coverage tracked.
     """
 
-    @validator("timestamp", pre=True)
+    @field_validator("timestamp", mode="before")
+    @classmethod
     def validate_timestamp(cls, value):
         # Default to current UTC timestamp (ms).
         return value or get_current_timestamp_ms()
 
     @property
-    def sources(self) -> List[str]:
+    def sources(self) -> list[str]:
         """
         Every source ID in the report.
         """
         return [s.source_id for p in self.projects for s in p.sources]
 
     @property
-    def statements(self) -> List[CoverageStatement]:
+    def statements(self) -> list[CoverageStatement]:
         """
         All valid coverage lines from every function in every contract in every source
         from every project in this report.
@@ -735,12 +740,12 @@ class CoverageReport(BaseModel):
                     xml_out.createElement("methods")
 
                     # Use name unless the same function found twice, then use full name.
-                    fn_map: Dict[str, FunctionCoverage] = {}
+                    fn_map: dict[str, FunctionCoverage] = {}
                     fn_singles_used = []
 
                     # For the XML report, we split all statements to be only 1 line long.
                     # Each class (contract) can only identify the statement (line number) once.
-                    lines_to_add: Dict[int, int] = {}
+                    lines_to_add: dict[int, int] = {}
                     xlines = xml_out.createElement("lines")
 
                     for function in contract.functions:
@@ -811,7 +816,7 @@ class CoverageReport(BaseModel):
             path = path / "coverage.xml"
 
         path.unlink(missing_ok=True)
-        path.write_text(xml)
+        path.write_text(xml, encoding="utf8")
 
     def write_html(self, path: Path, verbose: bool = False):
         if not (html := self.get_html(verbose=verbose)):
@@ -832,7 +837,7 @@ class CoverageReport(BaseModel):
         # Create new index.html.
         index = html_path / "index.html"
         index.unlink(missing_ok=True)
-        index.write_text(html)
+        index.write_text(html, encoding="utf8")
 
         favicon = html_path / "favicon.ico"
         if not favicon.is_file():
@@ -861,7 +866,7 @@ class CoverageReport(BaseModel):
 
             css = html_path / "styles.css"
             css.unlink(missing_ok=True)
-            css.write_text(_CSS)
+            css.write_text(_CSS, encoding="utf8")
 
     def get_html(self, verbose: bool = False) -> str:
         """
@@ -998,8 +1003,8 @@ class CoverageReport(BaseModel):
         stmt_cov_td = SubElement(tbody_tr, "td", {}, **{"class": "column4"})
         stmt_cov_td.text = f"{round(src_or_fn.line_rate * 100, 2)}%"
 
-    def dict(self, *args, **kwargs) -> dict:
-        attribs = super().dict(*args, **kwargs)
+    def model_dump(self, *args, **kwargs) -> dict:
+        attribs = super().model_dump(*args, **kwargs)
 
         # Add coverage stats.
         attribs["lines_covered"] = self.lines_covered

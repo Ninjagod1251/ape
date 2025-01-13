@@ -1,10 +1,9 @@
 import re
 from re import Pattern
-from typing import Optional, Type, Union
+from typing import Optional, Union
 
 from ethpm_types.abi import ErrorABI
 
-from ape.contracts import ContractInstance
 from ape.exceptions import ContractLogicError, CustomError, TransactionError
 from ape.utils.basemodel import ManagerAccessMixin
 
@@ -25,7 +24,7 @@ class RevertInfo:
 class RevertsContextManager(ManagerAccessMixin):
     def __init__(
         self,
-        expected_message: Optional[Union[_RevertMessage, Type[CustomError], ErrorABI]] = None,
+        expected_message: Optional[Union[_RevertMessage, type[CustomError], ErrorABI]] = None,
         dev_message: Optional[_RevertMessage] = None,
         **error_inputs,
     ):
@@ -105,6 +104,9 @@ class RevertsContextManager(ManagerAccessMixin):
             raise AssertionError(f"{assertion_error_prefix} but got '{actual}'.")
 
     def _check_custom_error(self, exception: Union[CustomError]):
+        # perf: avoid loading from contracts namespace until needed.
+        from ape.contracts import ContractInstance
+
         expected_error_cls = self.expected_message
 
         if not isinstance(expected_error_cls, ErrorABI) and not isinstance(
@@ -122,6 +124,7 @@ class RevertsContextManager(ManagerAccessMixin):
             # NOTE: This is the check that ensures the error class is coming from
             # the expected contract instance (e.g. from the same address).
             # If not address is being compared, this check is skipped.
+
             raise AssertionError(
                 f"Expected error '{expected_error_cls.__name__}' "
                 f"but was '{type(exception).__name__}'"
@@ -153,7 +156,7 @@ class RevertsContextManager(ManagerAccessMixin):
         self.revert_info = info
         return info
 
-    def __exit__(self, exc_type: Type, exc_value: Exception, traceback) -> bool:
+    def __exit__(self, exc_type: type, exc_value: Exception, traceback) -> bool:
         if exc_type is None:
             raise AssertionError("Transaction did not revert.")
 

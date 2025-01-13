@@ -14,10 +14,10 @@ jobs:
         runs-on: ubuntu-latest
 
         steps:
-        - uses: actions/checkout@v3
+        - uses: actions/checkout@v4
 
         - name: Setup Python
-          uses: actions/setup-python@v4
+          uses: actions/setup-python@v5
           with:
               python-version: "3.10"
 
@@ -42,10 +42,10 @@ jobs:
         runs-on: ubuntu-latest
 
         steps:
-        - uses: actions/checkout@v3
+        - uses: actions/checkout@v4
 
         - name: Setup Python
-          uses: actions/setup-python@v4
+          uses: actions/setup-python@v5
           with:
               python-version: "3.10"
 
@@ -57,36 +57,36 @@ jobs:
         - name: Run MyPy
           run: mypy .
 
-    functional:
+    test:
         runs-on: ${{ matrix.os }}
 
         strategy:
             matrix:
                 os: [ubuntu-latest, macos-latest]   # eventually add `windows-latest`
-                python-version: [3.8, 3.9, "3.10", "3.11"]
+                python-version: [3.9, "3.10", "3.11", "3.12", "3.13"]
 
         env:
           GITHUB_ACCESS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
         steps:
-        - uses: actions/checkout@v3
+        - uses: actions/checkout@v4
           with:
             fetch-depth: 0
 
         - name: Setup Python
-          uses: actions/setup-python@v4
+          uses: actions/setup-python@v5
           with:
               python-version: ${{ matrix.python-version }}
 
         - name: Setup Go
-          uses: actions/setup-go@v4
+          uses: actions/setup-go@v5
           with:
             go-version: '^1.20.7'
 
         - name: Install Geth
           uses: gacts/install-geth-tools@v1
           with:
-            version: 1.12.2
+            version: 1.14.12
 
         - name: Install Dependencies
           run: |
@@ -94,8 +94,14 @@ jobs:
             pip uninstall eth-ape --yes
             pip install .[test]
 
-        - name: Run Tests
-          run: pytest -m "not fuzzing" -s --cov=src -n auto --dist loadgroup
+        - name: Run Functional Tests
+          run: ape test tests/functional -m "not fuzzing" -s --cov=src --cov-append -n auto --dist loadgroup
+
+        - name: Run Integration Tests
+          run: ape test tests/integration -m "not fuzzing" -s --cov=src --cov-append -n auto --dist loadgroup
+
+        - name: Run Performance Tests
+          run: ape test tests/performance -s
 
     fuzzing:
         runs-on: ubuntu-latest
@@ -104,10 +110,10 @@ jobs:
             fail-fast: true
 
         steps:
-        - uses: actions/checkout@v3
+        - uses: actions/checkout@v4
 
         - name: Setup Python
-          uses: actions/setup-python@v4
+          uses: actions/setup-python@v5
           with:
               python-version: "3.10"
 
@@ -117,4 +123,4 @@ jobs:
             pip install .[test]
 
         - name: Run Tests
-          run: pytest -m "fuzzing" --no-cov -s
+          run: ape test -m "fuzzing" --no-cov -s

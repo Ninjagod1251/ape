@@ -5,7 +5,7 @@ def test_provider(project, networks):
     """
     Tests that the network gets set from ape-config.yaml.
     """
-    assert networks.provider.name == "geth"
+    assert networks.provider.name == "node"
     assert networks.provider.is_connected
 
 
@@ -41,7 +41,7 @@ def test_using_contract_with_same_type_and_method_call(accounts, project):
     """
 
     owner = accounts[7]
-    contract = project.TestContractVy.deploy(sender=owner)
+    contract = project.VyperContract.deploy(sender=owner)
     contract.setNumber(777, sender=owner)
     assert contract.myNumber() == 777
 

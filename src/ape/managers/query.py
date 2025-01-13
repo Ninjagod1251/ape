@@ -1,22 +1,25 @@
 import difflib
 import time
+from collections.abc import Iterator
+from functools import cached_property, singledispatchmethod
 from itertools import tee
-from typing import Dict, Iterator, Optional
+from typing import Optional
 
-from ape.api import QueryAPI, QueryType, ReceiptAPI, TransactionAPI
 from ape.api.query import (
     AccountTransactionQuery,
     BaseInterfaceModel,
     BlockQuery,
     BlockTransactionQuery,
-    ContractCreationQuery,
     ContractEventQuery,
+    QueryAPI,
+    QueryType,
 )
+from ape.api.transactions import ReceiptAPI, TransactionAPI  # noqa: TC002
 from ape.contracts.base import ContractLog, LogFilter
 from ape.exceptions import QueryEngineError
 from ape.logging import logger
-from ape.plugins import clean_plugin_name
-from ape.utils import ManagerAccessMixin, cached_property, singledispatchmethod
+from ape.plugins._utils import clean_plugin_name
+from ape.utils.basemodel import ManagerAccessMixin
 
 
 class DefaultQueryProvider(QueryAPI):
@@ -24,6 +27,9 @@ class DefaultQueryProvider(QueryAPI):
     Default implementation of the :class:`~ape.api.query.QueryAPI`.
     Allows for the query of blockchain data using connected provider.
     """
+
+    def __init__(self):
+        self.supports_contract_creation = None
 
     @singledispatchmethod
     def estimate_query(self, query: QueryType) -> Optional[int]:  # type: ignore
@@ -38,12 +44,6 @@ class DefaultQueryProvider(QueryAPI):
     def estimate_block_transaction_query(self, query: BlockTransactionQuery) -> int:
         # NOTE: Very loose estimate of 1000ms per block for this query.
         return self.provider.get_block(query.block_id).num_transactions * 100
-
-    @estimate_query.register
-    def estimate_contract_creation_query(self, query: ContractCreationQuery) -> int:
-        # NOTE: Extremely expensive query, involves binary search of all blocks in a chain
-        #       Very loose estimate of 5s per transaction for this query.
-        return 5000
 
     @estimate_query.register
     def estimate_contract_events_query(self, query: ContractEventQuery) -> int:
@@ -74,14 +74,6 @@ class DefaultQueryProvider(QueryAPI):
         self, query: BlockTransactionQuery
     ) -> Iterator[TransactionAPI]:
         return self.provider.get_transactions_by_block(query.block_id)
-
-    @perform_query.register
-    def perform_contract_creation_query(self, query: ContractCreationQuery) -> Iterator[ReceiptAPI]:
-        yield from self.provider.get_contract_creation_receipts(
-            address=query.contract,
-            start_block=query.start_block,
-            stop_block=query.stop_block,
-        )
 
     @perform_query.register
     def perform_contract_events_query(self, query: ContractEventQuery) -> Iterator[ContractLog]:
@@ -120,7 +112,7 @@ class QueryManager(ManagerAccessMixin):
     """
 
     @cached_property
-    def engines(self) -> Dict[str, QueryAPI]:
+    def engines(self) -> dict[str, QueryAPI]:
         """
         A dict of all :class:`~ape.api.query.QueryAPI` instances across all
         installed plugins.
@@ -129,7 +121,7 @@ class QueryManager(ManagerAccessMixin):
             dict[str, :class:`~ape.api.query.QueryAPI`]
         """
 
-        engines: Dict[str, QueryAPI] = {"__default__": DefaultQueryProvider()}
+        engines: dict[str, QueryAPI] = {"__default__": DefaultQueryProvider()}
 
         for plugin_name, engine_class in self.plugin_manager.query_engines:
             engine_name = clean_plugin_name(plugin_name)
@@ -151,7 +143,8 @@ class QueryManager(ManagerAccessMixin):
             engine_to_use (Optional[str]): Short-circuit selection logic using
               a specific engine. Defaults is set by performance-based selection logic.
 
-        Raises: :class:`~ape.exceptions.QueryEngineError`: When given an invalid or
+        Raises:
+            :class:`~ape.exceptions.QueryEngineError`: When given an invalid or
           inaccessible ``engine_to_use`` value.
 
         Returns:
@@ -184,14 +177,25 @@ class QueryManager(ManagerAccessMixin):
                 raise QueryEngineError("No query engines are available.") from e
 
         # Go fetch the result from the engine
-        logger.debug(f"{sel_engine.__class__.__name__}: {query.__class__.__name__}({query})")
+        sel_engine_name = getattr(type(sel_engine), "__name__", None)
+        query_type_name = getattr(type(query), "__name__", None)
+        if not sel_engine_name:
+            logger.error("Engine type unknown")
+        if not query_type_name:
+            logger.error("Query type unknown")
+
+        if sel_engine_name and query_type_name:
+            logger.debug(f"{sel_engine_name}: {query_type_name}({query})")
+
         start_time = time.time_ns()
         result = sel_engine.perform_query(query)
         exec_time = (time.time_ns() - start_time) // 1000
-        logger.debug(
-            f"{sel_engine.__class__.__name__}: {query.__class__.__name__}"
-            f" executed in {exec_time} ms (expected: {est_time} ms)"
-        )
+
+        if sel_engine_name and query_type_name:
+            logger.debug(
+                f"{sel_engine_name}: {query_type_name}"
+                f" executed in {exec_time} ms (expected: {est_time} ms)"
+            )
 
         # Update any caches
         for engine in self.engines.values():

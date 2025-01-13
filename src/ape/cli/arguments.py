@@ -1,66 +1,172 @@
-from itertools import chain
-from typing import Optional, Type
+from collections.abc import Iterable
+from pathlib import Path
+from typing import TYPE_CHECKING, Optional, Union
 
 import click
-from eth_utils import is_hex
+from click import BadArgumentUsage
 
-from ape import accounts, project
-from ape.api import AccountAPI
-from ape.cli.choices import Alias
-from ape.cli.paramtype import AllFilePaths
-from ape.exceptions import AccountsError, AliasAlreadyInUseError
+from ape.cli.choices import _ACCOUNT_TYPE_FILTER, Alias
+from ape.logging import logger
 
-_flatten = chain.from_iterable
+if TYPE_CHECKING:
+    from ape.managers.project import ProjectManager
 
 
 def _alias_callback(ctx, param, value):
-    if value in accounts.aliases:
-        # Alias cannot be used.
-        raise AliasAlreadyInUseError(value)
+    from ape.utils.validators import _validate_account_alias
 
-    elif not isinstance(value, str):
-        raise AccountsError(f"Alias must be a str, not '{type(value)}'.")
-    elif is_hex(value) and len(value) >= 42:
-        raise AccountsError("Longer aliases cannot be hex strings.")
-
-    return value
+    return _validate_account_alias(value)
 
 
-def existing_alias_argument(account_type: Optional[Type[AccountAPI]] = None):
+def existing_alias_argument(account_type: _ACCOUNT_TYPE_FILTER = None, **kwargs):
     """
     A ``click.argument`` for an existing account alias.
 
     Args:
-        account_type (Type[:class:`~ape.api.accounts.AccountAPI`], optional):
+        account_type (type[:class:`~ape.api.accounts.AccountAPI`], optional):
           If given, limits the type of account the user may choose from.
+        **kwargs: click.argument overrides.
     """
+    type_ = kwargs.pop("type", Alias(key=account_type))
+    return click.argument("alias", type=type_, **kwargs)
 
-    return click.argument("alias", type=Alias(account_type=account_type))
 
-
-def non_existing_alias_argument():
+def non_existing_alias_argument(**kwargs):
     """
     A ``click.argument`` for an account alias that does not yet exist in ape.
+
+    Args:
+        **kwargs: click.argument overrides.
     """
 
-    return click.argument("alias", callback=_alias_callback)
+    callback = kwargs.pop("callback", _alias_callback)
+    return click.argument("alias", callback=callback, **kwargs)
 
 
-def _create_contracts_paths(ctx, param, value):
-    contract_paths = _flatten(value)
+class _ContractPaths:
+    """
+    Helper callback class for handling CLI-given contract paths.
+    """
 
-    def _raise_bad_arg(name):
-        raise click.BadArgumentUsage(f"Contract '{name}' not found.")
+    def __init__(self, value, project: Optional["ProjectManager"] = None):
+        from ape.utils.basemodel import ManagerAccessMixin
 
-    resolved_contract_paths = set()
-    for contract_path in contract_paths:
-        # Adds missing absolute path as well as extension.
-        if resolved_contract_path := project.lookup_path(contract_path):
-            resolved_contract_paths.add(resolved_contract_path)
+        self.value = value
+        self.missing_compilers: set[str] = set()  # set of .ext
+        self.project = project or ManagerAccessMixin.local_project
+
+    @classmethod
+    def callback(cls, ctx, param, value) -> set[Path]:
+        """
+        Use this for click.option / argument callbacks.
+        """
+        project = ctx.params.get("project")
+        return cls(value, project=project).filtered_paths
+
+    @property
+    def filtered_paths(self) -> set[Path]:
+        """
+        Get the filtered set of paths.
+        """
+        value = self.value
+        contract_paths: Iterable[Path]
+
+        if value and isinstance(value, (Path, str)):
+            # Given single path.
+            contract_paths = (Path(value),)
+        elif not value or value == "*":
+            # Get all file paths in the project.
+            return {p for p in self.project.sources.paths}
+        elif isinstance(value, Iterable):
+            contract_paths = value
         else:
-            _raise_bad_arg(contract_path.name)
+            raise BadArgumentUsage(f"Not a path or iter[Path]: {value}")
 
-    return resolved_contract_paths
+        # Convert source IDs or relative paths to absolute paths.
+        path_set = self.lookup(contract_paths)
+
+        # Handle missing compilers.
+        if self.missing_compilers:
+            # Craft a nice message for all missing compilers.
+            missing_ext = ", ".join(sorted(self.missing_compilers))
+            message = (
+                f"Missing compilers for the following file types: '{missing_ext}'. "
+                "Possibly, a compiler plugin is not installed or is "
+                "installed but not loading correctly."
+            )
+            if ".vy" in self.missing_compilers:
+                message = f"{message} Is 'ape-vyper' installed?"
+            if ".sol" in self.missing_compilers:
+                message = f"{message} Is 'ape-solidity' installed?"
+
+            logger.warning(message)
+
+        return path_set
+
+    @property
+    def exclude_patterns(self) -> set[str]:
+        from ape.utils.basemodel import ManagerAccessMixin as access
+
+        return access.config_manager.get_config("compile").exclude or set()
+
+    def do_exclude(self, path: Union[Path, str]) -> bool:
+        return self.project.sources.is_excluded(path)
+
+    def compiler_is_unknown(self, path: Union[Path, str]) -> bool:
+        from ape.utils.basemodel import ManagerAccessMixin
+        from ape.utils.os import get_full_extension
+
+        ext = get_full_extension(path)
+        unknown_compiler = (
+            ext and ext not in ManagerAccessMixin.compiler_manager.registered_compilers
+        )
+        if unknown_compiler and ext not in self.missing_compilers:
+            self.missing_compilers.add(ext)
+
+        return bool(unknown_compiler)
+
+    def lookup(self, path_iter: Iterable, path_set: Optional[set] = None) -> set[Path]:
+        path_set = path_set or set()
+        given_paths = [p for p in path_iter]  # Handle iterators w/o losing it.
+
+        for path_id in given_paths:
+            path = Path(path_id)
+            contracts_folder = self.project.contracts_folder
+            if (
+                self.project.path / path.name
+            ) == contracts_folder or path.name == contracts_folder.name:
+                # Was given the path to the contracts folder.
+                path_set = path_set.union({p for p in self.project.sources.paths})
+
+            elif (self.project.path / path).is_dir():
+                # Was given sub-dir in the project folder.
+                path_set = path_set.union(
+                    self.lookup(
+                        (p for p in (self.project.path / path).iterdir()), path_set=path_set
+                    )
+                )
+
+            elif (contracts_folder / path.name).is_dir():
+                # Was given sub-dir in the contracts folder.
+                path_set = path_set.union(
+                    self.lookup(
+                        (p for p in (contracts_folder / path.name).iterdir()), path_set=path_set
+                    )
+                )
+
+            elif resolved_path := self.project.sources.lookup(path):
+                # Check compiler missing.
+                if self.compiler_is_unknown(resolved_path):
+                    # NOTE: ^ Also tracks.
+                    continue
+
+                # We know here that the compiler is known.
+                path_set.add(resolved_path)
+
+            else:
+                raise BadArgumentUsage(f"Source file '{path.name}' not found.")
+
+        return path_set
 
 
 def contract_file_paths_argument():
@@ -71,10 +177,4 @@ def contract_file_paths_argument():
     The return type from the callback is a flattened list of
     source file-paths.
     """
-
-    return click.argument(
-        "file_paths",
-        nargs=-1,
-        type=AllFilePaths(resolve_path=True),
-        callback=_create_contracts_paths,
-    )
+    return click.argument("file_paths", nargs=-1, callback=_ContractPaths.callback)

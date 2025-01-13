@@ -1,6 +1,6 @@
 # Development
 
-To get started with working on the codebase, use the following steps prepare your local environment:
+To get started with working on the codebase, use the following steps to prepare your local environment:
 
 ```bash
 # clone the GitHub repo and navigate into the folder
@@ -11,11 +11,13 @@ cd ape
 python3 -m venv venv
 source venv/bin/activate
 
-# install the developer dependencies (-e is interactive mode)
-pip install -e .'[dev]'
+# install the developer dependencies (-e is editable mode)
+pip install -e .[dev]
 ```
 
-**NOTE**: You might run into issues where you have a local install and are trying to work with a plugin pinned to a specific version.
+```{note}
+You might run into issues where you have a local install and are trying to work with a plugin pinned to a specific version.
+```
 
 [The easiest solution](https://github.com/ApeWorX/ape/issues/90) to this is to fetch the tags via `git fetch upstream --tags` and reinstall via `pip install .`.
 You will then have the correct version.
@@ -50,23 +52,28 @@ export GITHUB_ACCESS_TOKEN=<your-token>
 First, make sure you have the docs-related tooling installed:
 
 ```bash
-pip install -e .'[doc]'
+pip install -e .[doc]
 ```
 
 Then, run the following from the root project directory:
 
 ```bash
-python build_docs.py
+sphinx-ape build .
 ```
 
 For the best viewing experience, use a local server:
 
 ```bash
-python -m http.server --directory "docs/_build/" --bind 127.0.0.1 1337
+sphinx-ape serve .
 ```
 
 Then, open your browser to `127.0.0.1:1337` and click the `ape` directory link.
-NOTE: Serving from `"docs/_build/"` rather than `"docs/_build/ape"` is necessary to make routing work.
+
+You can also use the `--open` flag to automatically open the docs:
+
+```bash
+sphinx-ape serve . --open
+```
 
 ## Pull Requests
 

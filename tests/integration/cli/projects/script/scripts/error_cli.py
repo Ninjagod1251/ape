@@ -1,5 +1,7 @@
 import click
 
+import ape
+
 
 @click.command(short_help="Use a subcommand")
 def cli():

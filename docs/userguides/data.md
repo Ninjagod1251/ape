@@ -26,9 +26,12 @@ Each account within ape will also fetch and store transactional data that you ca
 To work with an account's transaction data, you can do stuff like this:
 
 ```python
-In [1]: chain.history["example.eth"].query("value").sum()  # All value sent by this address
-In [2]: acct = accounts.load("my-acct"); acct.history[-1]  # Last txn `acct` made
-In [3]: acct.history.query("total_fees_paid").sum()  # Sum of ether paid for fees by `acct`
+from ape import accounts, chain
+
+chain.history["example.eth"].query("value").sum()  # All value sent by this address
+acct = accounts.load("my-acct")
+tx = acct.history[-1]  # Last txn `acct` made
+acct.history.query("total_fees_paid").sum()  # Sum of ether paid for fees by `acct`
 ```
 
 ## Getting Contract Event Data
@@ -48,9 +51,11 @@ See [this guide](../userguides/contracts.html) for more information how to deplo
 
 ## Using the Cache
 
-**Note**: This is in Beta release.
+```{note}
+This is in Beta release.
 This functionality is in constant development and many features are in planning stages.
 Use the cache plugin to store provider data in a sqlite database.
+```
 
 To use the cache, first you must initialize it for each network you plan on caching data for:
 
@@ -58,7 +63,10 @@ To use the cache, first you must initialize it for each network you plan on cach
 ape cache init --network <ecosystem-name>:<network-name>
 ```
 
-**Note**: Caching only works for permanently available networks. It will not work with local development networks.
+```{note}
+Caching only works for permanently available networks. 
+It will not work with local development networks.
+```
 
 For example, to initialize the cache database for the Ethereum mainnet network, you would do the following:
 

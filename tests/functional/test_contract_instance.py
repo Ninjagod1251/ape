@@ -1,24 +1,24 @@
 import re
-from typing import List, Tuple
+from collections import namedtuple
 
 import pytest
+from eth_pydantic_types import HexBytes
 from eth_utils import is_checksum_address, to_hex
-from ethpm_types import ContractType, HexBytes
+from ethpm_types import BaseModel, ContractType
+from web3._utils.abi import recursive_dict_to_namedtuple
 
-from ape import Contract
-from ape._pydantic_compat import BaseModel
 from ape.api import TransactionAPI
 from ape.contracts import ContractInstance
 from ape.exceptions import (
     APINotImplementedError,
     ArgumentsLengthError,
     ChainError,
-    ContractError,
+    ContractDataError,
     ContractLogicError,
     CustomError,
     MethodNonPayableError,
 )
-from ape.types import AddressType
+from ape.types.address import AddressType
 from ape_ethereum.transactions import TransactionStatusEnum, TransactionType
 
 MATCH_TEST_CONTRACT = re.compile(r"<TestContract((Sol)|(Vy))")
@@ -29,27 +29,39 @@ def data_object(owner):
     class DataObject(BaseModel):
         a: AddressType = owner.address
         b: HexBytes = HexBytes(123)
-        c: str = "GETS IGNORED"
+        c: int = 888
+        # Showing that extra keys don't matter.
+        extra_key: str = "GETS IGNORED"
 
     return DataObject()
 
 
-def test_init_at_unknown_address(networks_connected_to_tester, address):
-    _ = networks_connected_to_tester  # Need fixture or else get ProviderNotConnectedError
-    with pytest.raises(ChainError, match=f"Failed to get contract type for address '{address}'."):
-        Contract(address)
+def test_contract_interaction(eth_tester_provider, owner, vyper_contract_instance, mocker):
+    # Spy on the estimate_gas RPC method.
+    estimate_gas_spy = mocker.spy(eth_tester_provider.web3.eth, "estimate_gas")
 
+    # Check what max gas is before transacting.
+    max_gas = eth_tester_provider.max_gas
 
-def test_init_specify_contract_type(
-    solidity_contract_instance, vyper_contract_type, owner, networks_connected_to_tester
-):
-    # Vyper contract type is very close to solidity's.
-    # This test purposely uses the other just to show we are able to specify it externally.
-    contract = Contract(solidity_contract_instance.address, contract_type=vyper_contract_type)
-    assert contract.address == solidity_contract_instance.address
-    assert contract.contract_type == vyper_contract_type
-    assert contract.setNumber(2, sender=owner)
-    assert contract.myNumber() == 2
+    # Invoke a method from a contract via transacting.
+    receipt = vyper_contract_instance.setNumber(102, sender=owner)
+
+    # Verify values from the receipt.
+    assert not receipt.failed
+    assert receipt.receiver == vyper_contract_instance.address
+    assert receipt.gas_used < receipt.gas_limit
+    assert receipt.gas_limit == max_gas
+
+    # Show contract state changed.
+    num_val = vyper_contract_instance.myNumber()
+    assert num_val == 102
+
+    # Show that numbers from contract-return values are always currency-value
+    # comparable.
+    assert num_val == "102 WEI"
+
+    # Verify the estimate gas RPC was not used (since we are using max_gas).
+    assert estimate_gas_spy.call_count == 0
 
 
 def test_eq(vyper_contract_instance, chain):
@@ -105,21 +117,17 @@ def test_call_view_method(owner, contract_instance):
     assert contract_instance.myNumber() == 2
 
 
-def test_call_use_block_identifier(contract_instance, owner, chain):
+def test_call_use_block_id(contract_instance, owner, chain):
     expected = 2
     contract_instance.setNumber(expected, sender=owner)
     block_id = chain.blocks.height  # int
     contract_instance.setNumber(3, sender=owner)  # latest
-    actual = contract_instance.myNumber(block_identifier=block_id)
-    assert actual == expected
-
-    # Ensure alias "block_id" works
     actual = contract_instance.myNumber(block_id=block_id)
     assert actual == expected
 
     # Ensure works with hex
     block_id = to_hex(block_id)
-    actual = contract_instance.myNumber(block_identifier=block_id)
+    actual = contract_instance.myNumber(block_id=block_id)
     assert actual == expected
 
     # Ensure alias "block_id" works.
@@ -127,7 +135,7 @@ def test_call_use_block_identifier(contract_instance, owner, chain):
     assert actual == expected
 
     # Ensure works keywords like "latest"
-    actual = contract_instance.myNumber(block_identifier="latest")
+    actual = contract_instance.myNumber(block_id="latest")
     assert actual == 3
 
 
@@ -184,31 +192,47 @@ def test_revert_custom_exception(not_owner, error_contract):
     assert custom_err.inputs == {"addr": addr, "counter": 123}  # type: ignore
 
 
-def test_call_using_block_identifier(
-    vyper_contract_instance, owner, chain, networks_connected_to_tester
-):
+def test_revert_allow(not_owner, contract_instance):
+    # 'sender' is not the owner so it will revert (with a message)
+    receipt = contract_instance.setNumber(5, sender=not_owner, raise_on_revert=False)
+    assert receipt.error is not None
+    assert str(receipt.error) == "!authorized"
+
+    # Ensure this also works for calls.
+    contract_instance.setNumber.call(5, raise_on_revert=False)
+
+
+def test_revert_handles_compiler_panic(owner, contract_instance):
+    # note: setBalance is a weird name - it actually adjusts the balance.
+    # first, set it to be 1 less than an overflow.
+    contract_instance.setBalance(owner, 2**256 - 1, sender=owner)
+    # then, add 1 more, so it should no overflow and cause a compiler panic.
+    with pytest.raises(ContractLogicError):
+        contract_instance.setBalance(owner, 1, sender=owner)
+
+
+def test_call_using_block_id(vyper_contract_instance, owner, chain, networks_connected_to_tester):
     contract = vyper_contract_instance
     contract.setNumber(1, sender=owner)
     height = chain.blocks.height
     contract.setNumber(33, sender=owner)
-    actual_0 = contract.myNumber(block_identifier=height)
-    actual_1 = contract.myNumber(block_id=height)
-    assert actual_0 == actual_1 == 1
+    actual = contract.myNumber(block_id=height)
+    assert actual == 1
 
 
 def test_repr(vyper_contract_instance):
     assert re.match(
-        rf"<TestContract((Sol)|(Vy)) {vyper_contract_instance.address}>",
+        rf"<VyperContract {vyper_contract_instance.address}>",
         repr(vyper_contract_instance),
     )
     assert (
         repr(vyper_contract_instance.setNumber)
-        == f"<TestContractVy {vyper_contract_instance.address}>.setNumber"
+        == f"<VyperContract {vyper_contract_instance.address}>.setNumber"
     )
     assert str(vyper_contract_instance.setNumber) == "setNumber(uint256 num)"
     assert (
         repr(vyper_contract_instance.myNumber)
-        == f"<TestContractVy {vyper_contract_instance.address}>.myNumber"
+        == f"<VyperContract {vyper_contract_instance.address}>.myNumber"
     )
     assert str(vyper_contract_instance.myNumber) == "myNumber() -> uint256"
     assert (
@@ -217,24 +241,40 @@ def test_repr(vyper_contract_instance):
     )
 
 
-def test_structs(contract_instance, owner, chain):
+def test_structs_output(contract_instance, owner, chain, mystruct_c):
     actual = contract_instance.getStruct()
-    actual_sender, actual_prev_block = actual
+    actual_sender, actual_prev_block, actual_c = actual
+    tx_hash = chain.blocks[-2].hash
 
     # Expected: a == msg.sender
     assert actual.a == actual["a"] == actual[0] == actual_sender == owner
     assert is_checksum_address(actual.a)
 
     # Expected: b == block.prevhash.
-    assert actual.b == actual["b"] == actual[1] == actual_prev_block == chain.blocks[-2].hash
+    assert actual.b == actual["b"] == actual[1] == actual_prev_block == tx_hash
     assert isinstance(actual.b, bytes)
 
+    # Expected: c == 244
+    assert actual.c == actual["c"] == actual_c == mystruct_c == f"{mystruct_c} wei"
 
-def test_nested_structs(contract_instance, owner, chain):
+    expected_dict = {"a": owner, "b": tx_hash, "c": mystruct_c}
+    assert actual == expected_dict
+
+    expected_tuple = (owner, tx_hash, mystruct_c)
+    assert actual == expected_tuple
+
+    expected_list = [owner, tx_hash, mystruct_c]
+    assert actual == expected_list
+
+    expected_struct = contract_instance.getStruct()
+    assert actual == expected_struct
+
+
+def test_nested_structs(contract_instance, owner, chain, mystruct_c):
     actual_1 = contract_instance.getNestedStruct1()
     actual_2 = contract_instance.getNestedStruct2()
-    actual_sender_1, actual_prev_block_1 = actual_1.t
-    actual_sender_2, actual_prev_block_2 = actual_2.t
+    actual_sender_1, actual_prev_block_1, actual_c_1 = actual_1.t
+    actual_sender_2, actual_prev_block_2, actual_c_2 = actual_2.t
 
     # Expected: t.a == msg.sender
     assert actual_1.t.a == actual_1.t["a"] == actual_1.t[0] == actual_sender_1 == owner
@@ -255,6 +295,7 @@ def test_nested_structs(contract_instance, owner, chain):
         == chain.blocks[-2].hash
     )
     assert isinstance(actual_1.t.b, bytes)
+    assert isinstance(actual_1.t.b, HexBytes)
     assert (
         actual_2.t.b
         == actual_2.t["b"]
@@ -263,6 +304,10 @@ def test_nested_structs(contract_instance, owner, chain):
         == chain.blocks[-2].hash
     )
     assert isinstance(actual_2.t.b, bytes)
+    assert isinstance(actual_2.t.b, HexBytes)
+
+    # Expected: t.c == 244
+    assert actual_c_1 == actual_c_2 == mystruct_c == f"{mystruct_c} wei"
 
 
 def test_nested_structs_in_tuples(contract_instance, owner, chain):
@@ -283,24 +328,29 @@ def test_nested_structs_in_tuples(contract_instance, owner, chain):
 
 def test_get_empty_dyn_array_of_structs(contract_instance):
     actual = contract_instance.getEmptyDynArrayOfStructs()
-    expected: List = []
+    expected: list = []
     assert actual == expected
 
 
 def test_get_empty_tuple_of_dyn_array_structs(contract_instance):
     actual = contract_instance.getEmptyTupleOfDynArrayStructs()
-    expected: Tuple[List, List] = ([], [])
+    expected: tuple[list, list] = ([], [])
     assert actual == expected
 
 
 def test_get_empty_tuple_of_array_of_structs_and_dyn_array_of_structs(
-    contract_instance, zero_address
+    contract_instance,
+    zero_address,
 ):
     actual = contract_instance.getEmptyTupleOfArrayOfStructsAndDynArrayOfStructs()
+
+    # empty address, bytes, and int.
     expected_fixed_array = (
         zero_address,
         HexBytes("0x0000000000000000000000000000000000000000000000000000000000000000"),
+        0,
     )
+
     assert actual[0] == [expected_fixed_array, expected_fixed_array, expected_fixed_array]
     assert actual[1] == []
 
@@ -314,7 +364,7 @@ def test_get_tuple_of_int_and_struct_array(contract_instance):
 
 def test_get_empty_tuple_of_int_and_dyn_array(contract_instance):
     actual = contract_instance.getEmptyTupleOfIntAndDynArray()
-    expected: Tuple[List, List] = ([], [])
+    expected: tuple[list, list] = ([], [])
     assert actual == expected
 
 
@@ -527,21 +577,12 @@ def test_call_transact(vyper_contract_instance, owner):
     assert receipt.status == TransactionStatusEnum.NO_ERROR
 
 
-def test_receipt(contract_instance, owner):
-    receipt = contract_instance.receipt
+def test_creation_receipt(contract_instance, owner):
+    assert contract_instance.creation_metadata is not None
+    receipt = contract_instance.creation_metadata.receipt
     assert receipt.txn_hash == contract_instance.txn_hash
     assert receipt.contract_address == contract_instance.address
     assert receipt.sender == owner
-
-
-def test_receipt_when_needs_brute_force(vyper_contract_instance, owner):
-    # Force it to use the brute-force approach.
-    vyper_contract_instance._cached_receipt = None
-    vyper_contract_instance.txn_hash = None
-
-    actual = vyper_contract_instance.receipt.contract_address
-    expected = vyper_contract_instance.address
-    assert actual == expected
 
 
 def test_from_receipt_when_receipt_not_deploy(contract_instance, owner):
@@ -550,7 +591,7 @@ def test_from_receipt_when_receipt_not_deploy(contract_instance, owner):
         "Receipt missing 'contract_address' field. "
         "Was this from a deploy transaction (e.g. `project.MyContract.deploy()`)?"
     )
-    with pytest.raises(ContractError, match=expected_err):
+    with pytest.raises(ChainError, match=expected_err):
         ContractInstance.from_receipt(receipt, contract_instance.contract_type)
 
 
@@ -583,18 +624,18 @@ def test_dir(vyper_contract_instance):
         # From base class
         "address",
         "balance",
+        "call_view_method",
         "code",
         "contract_type",
         "codesize",
-        "nonce",
-        "is_contract",
-        "provider",
-        "receipt",
-        "txn_hash",
+        "creation_metadata",
         "decode_input",
         "get_event_by_signature",
         "invoke_transaction",
-        "call_view_method",
+        "is_contract",
+        "nonce",
+        "provider",
+        "txn_hash",
         *vyper_contract_instance._events_,
         *vyper_contract_instance._mutable_methods_,
         *vyper_contract_instance._view_methods_,
@@ -662,10 +703,10 @@ def test_decode_ambiguous_input(solidity_contract_instance, calldata_with_addres
     anonymous_calldata = calldata_with_address[4:]
     method = solidity_contract_instance.setNumber
     expected = (
-        f"Unable to find matching method ABI for calldata '{anonymous_calldata.hex()}'. "
+        f"Unable to find matching method ABI for calldata '{to_hex(anonymous_calldata)}'. "
         "Try prepending a method ID to the beginning of the calldata."
     )
-    with pytest.raises(ContractError, match=expected):
+    with pytest.raises(ContractDataError, match=expected):
         method.decode_input(anonymous_calldata)
 
 
@@ -691,17 +732,52 @@ def test_obj_as_struct_input(contract_instance, owner, data_object):
 
 
 def test_dict_as_struct_input(contract_instance, owner):
-    data = {"a": owner, "b": HexBytes(123), "c": "GETS IGNORED"}
+    # NOTE: Also showing extra keys like "extra_key" don't matter and are ignored.
+    data = {"a": owner, "b": HexBytes(123), "c": 999, "extra_key": "GETS_IGNORED"}
     assert contract_instance.setStruct(data) is None
 
 
-def test_obj_list_as_struct_array_input(contract_instance, owner, data_object):
-    assert contract_instance.setStructArray([data_object, data_object]) is None
+def test_tuple_as_struct_input(contract_instance, owner):
+    # NOTE: Also showing extra keys like "extra_key" don't matter and are ignored.
+    data = (owner, HexBytes(123), 999, "GES_IGNORED")
+    assert contract_instance.setStruct(data) is None
 
 
-def test_dict_list_as_struct_array_input(contract_instance, owner):
-    data = {"a": owner, "b": HexBytes(123), "c": "GETS IGNORED"}
-    assert contract_instance.setStructArray([data, data]) is None
+def test_named_tuple_as_struct_input(contract_instance, owner):
+    # NOTE: Also showing extra keys like "extra_key" don't matter and are ignored.
+    values = {"a": AddressType, "b": HexBytes, "c": int, "extra_key": int}
+    MyStruct = namedtuple("MyStruct", values)  # type: ignore
+    data = MyStruct(owner, HexBytes(123), 999, 0)  # type: ignore
+    assert contract_instance.setStruct(data) is None
+
+
+def test_web3_named_tuple_as_struct_input(solidity_contract_instance, owner):
+    """
+    Show we integrate nicely with web3 contracts notion of namedtuples.
+    """
+    data = {"a": solidity_contract_instance.address, "b": HexBytes(123), "c": 321}
+    w3_named_tuple = recursive_dict_to_namedtuple(data)
+    assert solidity_contract_instance.setStruct(w3_named_tuple) is None
+
+
+@pytest.mark.parametrize("sequence_type", (list, tuple))
+def test_obj_list_as_struct_array_input(contract_instance, data_object, sequence_type):
+    parameter = sequence_type([data_object, data_object])
+    actual = contract_instance.setStructArray(parameter)
+    # The function is pure and doesn't return anything.
+    # (only testing input handling).
+    assert actual is None
+
+
+@pytest.mark.parametrize("sequence_type", (list, tuple))
+def test_dict_list_as_struct_array_input(contract_instance, owner, sequence_type):
+    # NOTE: Also showing extra keys like "extra_key" don't matter and are ignored.
+    data = {"a": owner, "b": HexBytes(123), "c": 444, "extra_key": "GETS IGNORED"}
+    parameter = sequence_type([data, data])
+    actual = contract_instance.setStructArray(parameter)
+    # The function is pure and doesn't return anything.
+    # (only testing input handling).
+    assert actual is None
 
 
 def test_custom_error(error_contract, not_owner):
@@ -715,6 +791,22 @@ def test_custom_error(error_contract, not_owner):
     assert err.value.inputs == {"addr": not_owner.address, "counter": 123}
 
 
+def test_custom_error_info(solidity_contract_type, owner, error_contract):
+    missing_doc_err = error_contract.Unauthorized
+    empty_info = missing_doc_err.info
+    assert empty_info == ""
+
+    # NOTE: deploying a new contract to eliminate clashing with other tests.
+    new_sol_contract = owner.deploy(solidity_contract_type, 26262626262)
+    error_with_doc = new_sol_contract.ACustomError
+    actual = error_with_doc.info
+    expected = """
+ACustomError()
+  @details This is a doc for an error
+""".strip()
+    assert actual == expected
+
+
 def test_get_error_by_signature(error_contract):
     """
     Helps in cases where multiple errors have same name.
@@ -726,14 +818,35 @@ def test_get_error_by_signature(error_contract):
     assert actual == expected
 
 
-def test_source_path(project_with_contract, owner):
-    contracts_folder = project_with_contract.contracts_folder
-    contract = project_with_contract.contracts["Contract"]
-    contract_instance = owner.deploy(project_with_contract.get_contract("Contract"))
-    expected = contracts_folder / contract.source_id
+def test_selector_identifiers(vyper_contract_instance):
+    assert len(vyper_contract_instance.selector_identifiers.keys()) >= 54
+    assert vyper_contract_instance.selector_identifiers["balances(address)"] == "0x27e235e3"
+    assert vyper_contract_instance.selector_identifiers["owner()"] == "0x8da5cb5b"
+    assert (
+        vyper_contract_instance.selector_identifiers["FooHappened(uint256)"]
+        == "0x1a7c56fae0af54ebae73bc4699b9de9835e7bb86b050dff7e80695b633f17abd"
+    )
 
-    assert contract_instance.source_path.is_file()
-    assert contract_instance.source_path == expected
+
+def test_identifier_lookup(vyper_contract_instance):
+    assert len(vyper_contract_instance.identifier_lookup.keys()) >= 54
+    assert vyper_contract_instance.identifier_lookup["0x27e235e3"].selector == "balances(address)"
+    assert vyper_contract_instance.identifier_lookup["0x8da5cb5b"].selector == "owner()"
+    assert (
+        vyper_contract_instance.identifier_lookup[
+            "0x1a7c56fae0af54ebae73bc4699b9de9835e7bb86b050dff7e80695b633f17abd"
+        ].selector
+        == "FooHappened(uint256)"
+    )
+
+
+def test_source_path(project_with_contract, owner):
+    contract = project_with_contract.get_contract("Contract")
+    instance = owner.deploy(contract)
+    expected = project_with_contract.path / contract.source_id
+
+    assert instance.source_path.is_file()
+    assert instance.source_path == expected
 
 
 def test_fallback(fallback_contract, owner):
@@ -754,20 +867,20 @@ def test_value_to_non_payable_fallback_and_no_receive(
     and you try to send a value, it fails.
     """
     # Hack to set fallback as non-payable.
-    contract_type_data = vyper_fallback_contract_type.dict()
+    contract_type_data = vyper_fallback_contract_type.model_dump()
     for abi in contract_type_data["abi"]:
         if abi.get("type") == "fallback":
             abi["stateMutability"] = "non-payable"
             break
 
-    new_contract_type = ContractType.parse_obj(contract_type_data)
+    new_contract_type = ContractType.model_validate(contract_type_data)
     contract = owner.chain_manager.contracts.instance_at(
         vyper_fallback_contract.address, contract_type=new_contract_type
     )
     expected = (
         r"Contract's fallback is non-payable and there is no receive ABI\. Unable to send value\."
     )
-    with pytest.raises(ContractError, match=expected):
+    with pytest.raises(MethodNonPayableError, match=expected):
         contract(sender=owner, value=1)
 
     # Show can bypass by using `as_transaction()` and `owner.call()`.
@@ -787,7 +900,7 @@ def test_fallback_with_data_and_value_and_receive(solidity_fallback_contract, ow
     is non-payable.
     """
     expected = "Sending both value= and data= but fallback is non-payable."
-    with pytest.raises(ContractError, match=expected):
+    with pytest.raises(MethodNonPayableError, match=expected):
         solidity_fallback_contract(sender=owner, data="0x123", value=1)
 
     # Show can bypass by using `as_transaction()` and `owner.call()`.
@@ -858,7 +971,7 @@ def test_sending_funds_to_non_payable_constructor_by_contractContainerDeploy(
 ):
     with pytest.raises(
         MethodNonPayableError,
-        match="Sending funds to a non-payable constructor.",
+        match=r"Sending funds to a non-payable constructor\.",
     ):
         solidity_contract_container.deploy(1, sender=owner, value="1 ether")
 
@@ -868,7 +981,7 @@ def test_sending_funds_to_non_payable_constructor_by_accountDeploy(
 ):
     with pytest.raises(
         MethodNonPayableError,
-        match="Sending funds to a non-payable constructor.",
+        match=r"Sending funds to a non-payable constructor\.",
     ):
         owner.deploy(solidity_contract_container, 1, value="1 ether")
 
@@ -877,3 +990,34 @@ def test_sending_funds_to_non_payable_constructor_by_accountDeploy(
 def test_as_transaction(tx_type, vyper_contract_instance, owner, eth_tester_provider):
     tx = vyper_contract_instance.setNumber.as_transaction(987, sender=owner, type=tx_type.value)
     assert tx.gas_limit == eth_tester_provider.max_gas
+
+
+@pytest.mark.parametrize(
+    "calldata,expected",
+    (
+        (
+            "0x123456",
+            "0x123456",
+        ),
+        (
+            HexBytes("0x123456"),
+            "0x123456",
+        ),
+        (
+            ["0x123456", "0xabcd"],
+            "0x123456abcd",
+        ),
+        (
+            [HexBytes("0x123456"), "0xabcd"],
+            "0x123456abcd",
+        ),
+        (
+            ("0x123456", "0xabcd"),
+            "0x123456abcd",
+        ),
+    ),
+)
+def test_calldata_arg(calldata, expected, contract_instance, owner):
+    tx = contract_instance.functionWithCalldata(calldata, sender=owner)
+    assert not tx.failed
+    assert HexBytes(expected) in tx.data

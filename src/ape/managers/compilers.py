@@ -1,17 +1,33 @@
+from collections import defaultdict
+from collections.abc import Iterable, Iterator, Sequence
+from functools import cached_property
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import TYPE_CHECKING, Any, Optional, Union
 
-from ethpm_types import ContractType
-from ethpm_types.source import Content
+from eth_pydantic_types import HexBytes
 
-from ape.api import CompilerAPI
-from ape.exceptions import ApeAttributeError, CompilerError, ContractLogicError
+from ape.contracts import ContractContainer
+from ape.exceptions import CompilerError, ContractLogicError, CustomError
 from ape.logging import logger
 from ape.managers.base import BaseManager
-from ape.utils import get_relative_path
+from ape.utils.basemodel import (
+    ExtraAttributesMixin,
+    ExtraModelAttributes,
+    get_attribute_with_extras,
+    only_raise_attribute_error,
+)
+from ape.utils.misc import log_instead_of_fail
+from ape.utils.os import get_full_extension
+
+if TYPE_CHECKING:
+    from ethpm_types.contract_type import ContractType
+    from ethpm_types.source import Content
+
+    from ape.api.compiler import CompilerAPI
+    from ape.managers.project import ProjectManager
 
 
-class CompilerManager(BaseManager):
+class CompilerManager(BaseManager, ExtraAttributesMixin):
     """
     The singleton that manages :class:`~ape.api.compiler.CompilerAPI` instances.
     Each compiler plugin typically contains a single :class:`~ape.api.compiler.CompilerAPI`.
@@ -24,62 +40,66 @@ class CompilerManager(BaseManager):
         from ape import compilers  # "compilers" is the CompilerManager singleton
     """
 
-    _registered_compilers_cache: Dict[Path, Dict[str, CompilerAPI]] = {}
+    _registered_compilers_cache: dict[Path, dict[str, "CompilerAPI"]] = {}
 
-    def __repr__(self):
+    @log_instead_of_fail(default="<CompilerManager>")
+    def __repr__(self) -> str:
         num_compilers = len(self.registered_compilers)
-        return f"<{self.__class__.__name__} len(registered_compilers)={num_compilers}>"
+        cls_name = getattr(type(self), "__name__", CompilerManager.__name__)
+        return f"<{cls_name} len(registered_compilers)={num_compilers}>"
 
-    def __getattr__(self, name: str) -> Any:
-        try:
-            return self.__getattribute__(name)
-        except AttributeError:
-            pass
+    def __ape_extra_attributes__(self) -> Iterator[ExtraModelAttributes]:
+        yield ExtraModelAttributes(
+            name="compilers",
+            # Allow referencing compilers by name e.g. `compilers.vyper`.
+            attributes=lambda: {c.name: c for c in self.registered_compilers.values()},
+        )
 
-        if compiler := self.get_compiler(name):
-            return compiler
+    @only_raise_attribute_error
+    def __getattr__(self, attr_name: str) -> Any:
+        return get_attribute_with_extras(self, attr_name)
 
-        raise ApeAttributeError(f"No attribute or compiler named '{name}'.")
-
-    @property
-    def registered_compilers(self) -> Dict[str, CompilerAPI]:
+    @cached_property
+    def registered_compilers(self) -> dict[str, "CompilerAPI"]:
         """
         Each compile-able file extension mapped to its respective
         :class:`~ape.api.compiler.CompilerAPI` instance.
 
         Returns:
-            Dict[str, :class:`~ape.api.compiler.CompilerAPI`]: The mapping of file-extensions
+            dict[str, :class:`~ape.api.compiler.CompilerAPI`]: The mapping of file-extensions
             to compiler API classes.
         """
-
-        cache_key = self.config_manager.PROJECT_FOLDER
-        if cache_key in self._registered_compilers_cache:
-            return self._registered_compilers_cache[cache_key]
-
         registered_compilers = {}
 
         for plugin_name, (extensions, compiler_class) in self.plugin_manager.register_compiler:
-            # TODO: Investigate side effects of loading compiler plugins.
-            #       See if this needs to be refactored.
-            self.config_manager.get_config(plugin_name=plugin_name)
-
+            self.config_manager.get_config(plugin_name)
             compiler = compiler_class()
 
             for extension in extensions:
                 if extension not in registered_compilers:
                     registered_compilers[extension] = compiler
 
-        self._registered_compilers_cache[cache_key] = registered_compilers
         return registered_compilers
 
-    def get_compiler(self, name: str) -> Optional[CompilerAPI]:
+    def get_compiler(self, name: str, settings: Optional[dict] = None) -> Optional["CompilerAPI"]:
         for compiler in self.registered_compilers.values():
-            if compiler.name == name:
-                return compiler
+            if compiler.name != name:
+                continue
+
+            if settings is not None and settings != compiler.compiler_settings:
+                # Use a new instance to support multiple compilers of same type.
+                return compiler.model_copy(update={"compiler_settings": settings})
+
+            return compiler
 
         return None
 
-    def compile(self, contract_filepaths: List[Path]) -> Dict[str, ContractType]:
+    def compile(
+        self,
+        contract_filepaths: Union[Path, str, Iterable[Union[Path, str]]],
+        project: Optional["ProjectManager"] = None,
+        settings: Optional[dict] = None,
+    ) -> Iterator["ContractType"]:
         """
         Invoke :meth:`ape.ape.compiler.CompilerAPI.compile` for each of the given files.
         For example, use the `ape-solidity plugin <https://github.com/ApeWorX/ape-solidity>`__
@@ -87,121 +107,132 @@ class CompilerManager(BaseManager):
 
         Raises:
             :class:`~ape.exceptions.CompilerError`: When there is no compiler found for the given
-              extension as well as when there is a contract-type collision across compilers.
+              file-extension as well as when there are contract-type collisions across compilers.
 
         Args:
-            contract_filepaths (List[pathlib.Path]): The list of files to compile,
-              as ``pathlib.Path`` objects.
+            contract_filepaths (Union[Path, str, Iterable[Union[Path, str]]]): The files to
+              compile, as ``pathlib.Path`` objects or path-strs.
+            project (Optional[:class:`~ape.managers.project.ProjectManager`]): Optionally
+              compile a different project that the one from the current-working directory.
+            settings (Optional[Dict]): Adhoc compiler settings. Defaults to None.
+              Ensure the compiler name key is present in the dict for it to work.
 
         Returns:
-            Dict[str, ``ContractType``]: A mapping of contract names to their type.
+            Iterator[``ContractType``]: An iterator of contract types.
         """
-        extensions = self._get_contract_extensions(contract_filepaths)
-        contracts_folder = self.config_manager.contracts_folder
-        contract_types_dict: Dict[str, ContractType] = {}
-        built_paths = [p for p in self.project_manager.local_project._cache_folder.glob("*.json")]
-        built_names = [p.stem for p in built_paths if p.stem != "__local__"]
 
-        for extension in extensions:
-            path_patterns_to_ignore = self.config_manager.compiler.ignore_files
-            ignore_path_lists = [contracts_folder.rglob(p) for p in path_patterns_to_ignore]
-            paths_to_ignore = [
-                contracts_folder / get_relative_path(p, contracts_folder)
-                for files in ignore_path_lists
-                for p in files
-            ]
+        pm = project or self.local_project
+        files_by_ext = defaultdict(list)
+        if isinstance(contract_filepaths, (str, Path)):
+            contract_filepaths = (contract_filepaths,)
 
-            # Filter out in-source cache files from dependencies.
-            paths_to_compile = [
-                path
-                for path in contract_filepaths
-                if path.is_file()
-                and path not in paths_to_ignore
-                and path not in built_paths
-                and path.suffix == extension
-                and not any(x in [p.name for p in path.parents] for x in (".cache", ".build"))
-            ]
+        for path in map(Path, contract_filepaths):
+            suffix = get_full_extension(path)
+            if suffix in self.registered_compilers:
+                files_by_ext[suffix].append(path)
 
-            source_ids = [get_relative_path(p, contracts_folder) for p in paths_to_compile]
-            for source_id in source_ids:
-                logger.info(f"Compiling '{source_id}'.")
+        errors = []
+        tracker: dict[str, str] = {}
+        settings = settings or {}
 
-            compiled_contracts = self.registered_compilers[extension].compile(
-                paths_to_compile, base_path=contracts_folder
+        for next_ext, path_set in files_by_ext.items():
+            compiler = self.registered_compilers[next_ext]
+            try:
+                compiler_settings = settings.get(compiler.name, {})
+                for contract in compiler.compile(path_set, project=pm, settings=compiler_settings):
+                    if contract.name in tracker:
+                        raise CompilerError(
+                            f"ContractType collision. "
+                            f"Contracts '{tracker[contract.name]}' and '{contract.source_id}' "
+                            f"share the name '{contract.name}'."
+                        )
+
+                    if contract.name and contract.source_id:
+                        tracker[contract.name] = contract.source_id
+
+                    yield contract
+
+            except CompilerError as err:
+                # One of the compilers failed. Show the error but carry on.
+                logger.log_debug_stack_trace()
+                errors.append(err)
+                continue
+
+        if len(errors) == 1:
+            # If only 1 error, just raise that.
+            raise errors[0]
+
+        elif len(errors) > 1:
+            # Raise a combined error.
+            formatted_errors = [f"{e}" for e in errors]
+            error_message = "\n\n".join(formatted_errors)
+            raise CompilerError(error_message)
+
+        # else: successfully compiled everything!
+
+    def compile_source(
+        self,
+        compiler_name: str,
+        code: str,
+        project: Optional["ProjectManager"] = None,
+        settings: Optional[dict] = None,
+        **kwargs,
+    ) -> ContractContainer:
+        """
+        Compile the given program.
+
+        Usage example::
+
+            code = '[{"name":"foo","type":"fallback", "stateMutability":"nonpayable"}]'
+            contract_type = compilers.compile_source(
+                "ethpm",
+                code,
+                contractName="MyContract",
             )
-            for contract_type in compiled_contracts:
-                contract_name = contract_type.name
-                if not contract_name:
-                    # Compiler plugins should have let this happen, but just in case we get here,
-                    # raise a better error so the user has some indication of what happened.
-                    if contract_type.source_id:
-                        raise CompilerError(
-                            f"Contract '{contract_type.source_id}' missing name. "
-                            f"Was compiler plugin for '{extension} implemented correctly?"
-                        )
-                    else:
-                        raise CompilerError(
-                            f"Empty contract type found in compiler '{extension}'. "
-                            f"Was compiler plugin for '{extension} implemented correctly?"
-                        )
 
-                if contract_name in contract_types_dict:
-                    already_added_contract_type = contract_types_dict[contract_name]
-                    error_message = (
-                        f"{ContractType.__name__} collision between sources "
-                        f"'{contract_type.source_id}' and "
-                        f"'{already_added_contract_type.source_id}'."
-                    )
-                    raise CompilerError(error_message)
+        Args:
+            compiler_name (str): The name of the compiler to use.
+            code (str): The source code to compile.
+            project (Optional[:class:`~ape.managers.project.ProjectManager`]): Optionally
+              compile a different project that the one from the current-working directory.
+            settings (Optional[dict]): Compiler settings.
+            **kwargs (Any): Additional overrides for the ``ethpm_types.ContractType`` model.
 
-                elif contract_name in built_names:
-                    # Ensure we are not colliding.
-                    existing_artifact = (
-                        self.project_manager.local_project._cache_folder / f"{contract_name}.json"
-                    )
+        Returns:
+            ``ContractContainer``: A contract container ready to be deployed.
+        """
+        compiler = self.get_compiler(compiler_name, settings=settings)
+        if not compiler:
+            raise ValueError(f"Compiler '{compiler_name}' not found.")
 
-                    try:
-                        existing_contract = ContractType.parse_file(existing_artifact)
-                    except Exception:
-                        existing_artifact.unlink()
-
-                    else:
-                        path = self.project_manager.lookup_path(existing_contract.source_id)
-                        if path and existing_contract.source_id != contract_type.source_id:
-                            error_message = f"{ContractType.__name__} collision '{contract_name}'."
-                            raise CompilerError(error_message)
-
-                        elif not path:
-                            # Artifact remaining from deleted contract, can delete.
-                            existing_artifact.unlink()
-
-                contract_types_dict[contract_name] = contract_type
-
-        return contract_types_dict
+        contract_type = compiler.compile_code(code, project=project, **kwargs)
+        return ContractContainer(contract_type=contract_type)
 
     def get_imports(
-        self, contract_filepaths: List[Path], base_path: Optional[Path] = None
-    ) -> Dict[str, List[str]]:
+        self,
+        contract_filepaths: Sequence[Path],
+        project: Optional["ProjectManager"] = None,
+    ) -> dict[str, list[str]]:
         """
         Combine import dicts from all compilers, where the key is a contract's source_id
         and the value is a list of import source_ids.
 
         Args:
-            contract_filepaths (List[pathlib.Path]): A list of source file paths to compile.
-            base_path (Optional[pathlib.Path]): Optionally provide the base path, such as the
-              project ``contracts/`` directory. Defaults to ``None``. When using in a project
-              via ``ape compile``, gets set to the project's ``contracts/`` directory.
+            contract_filepaths (Sequence[pathlib.Path]): A list of source file paths to compile.
+            project (Optional[:class:`~ape.managers.project.ProjectManager`]): Optionally provide
+              the project.
 
         Returns:
-            Dict[str, List[str]]: A dictionary like ``{source_id: [import_source_id, ...], ...}``
+            dict[str, list[str]]: A dictionary like ``{source_id: [import_source_id, ...], ...}``
         """
-        imports_dict: Dict[str, List[str]] = {}
-        base_path = base_path or self.project_manager.contracts_folder
+        imports_dict: dict[str, list[str]] = {}
 
         for ext, compiler in self.registered_compilers.items():
             try:
-                sources = [p for p in contract_filepaths if p.suffix == ext and p.is_file()]
-                imports = compiler.get_imports(contract_filepaths=sources, base_path=base_path)
+                sources = [
+                    p for p in contract_filepaths if get_full_extension(p) == ext and p.is_file()
+                ]
+                imports = compiler.get_imports(contract_filepaths=sources, project=project)
             except NotImplementedError:
                 imports = None
 
@@ -210,19 +241,19 @@ class CompilerManager(BaseManager):
 
         return imports_dict
 
-    def get_references(self, imports_dict: Dict[str, List[str]]) -> Dict[str, List[str]]:
+    def get_references(self, imports_dict: dict[str, list[str]]) -> dict[str, list[str]]:
         """
         Provide a mapping containing all referenced source_ids for a given project.
         Each entry contains a source_id as a key and list of source_ids that reference a
         given contract.
 
         Args:
-            imports_dict (Dict[str, List[str]]): A dictionary of source_ids from all compilers.
+            imports_dict (dict[str, list[str]]): A dictionary of source_ids from all compilers.
 
         Returns:
-            Dict[str, List[str]]: A dictionary like ``{source_id: [referring_source_id, ...], ...}``
+            dict[str, list[str]]: A dictionary like ``{source_id: [referring_source_id, ...], ...}``
         """
-        references_dict: Dict[str, List[str]] = {}
+        references_dict: dict[str, list[str]] = {}
         if not imports_dict:
             return {}
 
@@ -234,19 +265,10 @@ class CompilerManager(BaseManager):
 
         return references_dict
 
-    def _get_contract_extensions(self, contract_filepaths: List[Path]) -> Set[str]:
-        extensions = {path.suffix for path in contract_filepaths}
-        unhandled_extensions = {s for s in extensions - set(self.registered_compilers) if s}
-        if len(unhandled_extensions) > 0:
-            unhandled_extensions_str = ", ".join(unhandled_extensions)
-            raise CompilerError(f"No compiler found for extensions [{unhandled_extensions_str}].")
-
-        return {e for e in extensions if e}
-
     def enrich_error(self, err: ContractLogicError) -> ContractLogicError:
         """
         Enrich a contract logic error using compiler information, such
-        known PC locations for compiler runtime errors, such as math errors.
+        known PC locations for compiler runtime errors.
 
         Args:
             err (:class:`~ape.exceptions.ContractLogicError`): The exception
@@ -255,30 +277,64 @@ class CompilerManager(BaseManager):
         Returns:
             :class:`~ape.exceptions.ContractLogicError`: The enriched exception.
         """
-
-        address = err.address
-        if not address:
-            # Contract address not found.
+        # First, try enriching using their ABI.
+        err = self.get_custom_error(err) or err
+        if not (contract_type := err.contract_type):
             return err
+
+        # Delegate to compiler APIs.
+        elif source_id := contract_type.source_id:
+            # Source ID found! Delegate to a CompilerAPI for enrichment.
+            ext = get_full_extension(Path(source_id))
+            if ext not in self.registered_compilers:
+                # Compiler not found.
+                return err
+
+            compiler = self.registered_compilers[ext]
+            return compiler.enrich_error(err)
+
+        # No further enrichment.
+        return err
+
+    def get_custom_error(self, err: ContractLogicError) -> Optional[CustomError]:
+        """
+        Get a custom error for the given contract logic error using the contract-type
+        found from address-data in the error. Returns ``None`` if the given error is
+        not a custom-error, or it is not able to find the associated contract type or
+        address.
+
+        Args:
+            err (:class:`~ape.exceptions.ContractLogicError`): The error to enrich
+              as a custom error.
+
+        Returns:
+            Optional[:class:`~ape.exceptions.CustomError`]
+        """
+        message = err.revert_message
+        if not message.startswith("0x"):
+            return None
+        elif not (address := err.address):
+            return None
+
+        if provider := self.network_manager.active_provider:
+            ecosystem = provider.network.ecosystem
+        else:
+            # Default to Ethereum.
+            ecosystem = self.network_manager.ethereum
 
         try:
-            contract = self.chain_manager.contracts.get(address)
-        except RecursionError:
-            contract = None
+            return ecosystem.decode_custom_error(
+                HexBytes(message),
+                address,
+                base_err=err.base_err,
+                source_traceback=lambda: err.source_traceback,
+                trace=err.trace,
+                txn=err.txn,
+            )
+        except NotImplementedError:
+            return None
 
-        if not contract or not contract.source_id:
-            # Contract or source not found.
-            return err
-
-        ext = Path(contract.source_id).suffix
-        if ext not in self.registered_compilers:
-            # Compiler not found.
-            return err
-
-        compiler = self.registered_compilers[ext]
-        return compiler.enrich_error(err)
-
-    def flatten_contract(self, path: Path) -> Content:
+    def flatten_contract(self, path: Path, **kwargs) -> "Content":
         """
         Get the flattened version of a contract via its source path.
         Delegates to the matching :class:`~ape.api.compilers.CompilerAPI`.
@@ -290,13 +346,12 @@ class CompilerManager(BaseManager):
             ``ethpm_types.source.Content``: The flattened contract content.
         """
 
-        if path.suffix not in self.registered_compilers:
-            raise CompilerError(
-                f"Unable to flatten contract. Missing compiler for '{path.suffix}'."
-            )
+        suffix = get_full_extension(path)
+        if suffix not in self.registered_compilers:
+            raise CompilerError(f"Unable to flatten contract. Missing compiler for '{suffix}'.")
 
-        compiler = self.registered_compilers[path.suffix]
-        return compiler.flatten_contract(path)
+        compiler = self.registered_compilers[suffix]
+        return compiler.flatten_contract(path, **kwargs)
 
     def can_trace_source(self, filename: str) -> bool:
         """
@@ -308,13 +363,13 @@ class CompilerManager(BaseManager):
             filename (str): The file to check.
 
         Returns:
-            bool
+            bool: ``True`` when the source is traceable.
         """
         path = Path(filename)
         if not path.is_file():
             return False
 
-        extension = path.suffix
+        extension = get_full_extension(path)
         if extension in self.registered_compilers:
             compiler = self.registered_compilers[extension]
             if compiler.supports_source_tracing:

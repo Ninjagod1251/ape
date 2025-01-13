@@ -1,17 +1,33 @@
 import json
+import warnings
+from collections.abc import Iterator
 from os import environ
 from pathlib import Path
-from typing import Iterator, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import click
+from eip712.messages import EIP712Message
 from eth_account import Account as EthAccount
-from eth_utils import to_bytes
-from ethpm_types import HexBytes
+from eth_account.hdaccount import ETHEREUM_DEFAULT_PATH
+from eth_account.messages import encode_defunct
+from eth_keys import keys  # type: ignore
+from eth_pydantic_types import HexBytes
+from eth_utils import to_bytes, to_hex
 
-from ape.api import AccountAPI, AccountContainerAPI, TransactionAPI
+from ape.api.accounts import AccountAPI, AccountContainerAPI
 from ape.exceptions import AccountsError
 from ape.logging import logger
-from ape.types import AddressType, MessageSignature, SignableMessage, TransactionSignature
+from ape.types.signatures import MessageSignature, SignableMessage, TransactionSignature
+from ape.utils._web3_compat import sign_hash
+from ape.utils.basemodel import ManagerAccessMixin
+from ape.utils.misc import log_instead_of_fail
+from ape.utils.validators import _validate_account_alias, _validate_account_passphrase
+
+if TYPE_CHECKING:
+    from eth_account.signers.local import LocalAccount
+
+    from ape.api.transactions import TransactionAPI
+    from ape.types.address import AddressType
 
 
 class InvalidPasswordError(AccountsError):
@@ -24,6 +40,8 @@ class InvalidPasswordError(AccountsError):
 
 
 class AccountContainer(AccountContainerAPI):
+    loaded_accounts: dict[str, "KeyfileAccount"] = {}
+
     @property
     def _keyfiles(self) -> Iterator[Path]:
         return self.data_folder.glob("*.json")
@@ -36,7 +54,11 @@ class AccountContainer(AccountContainerAPI):
     @property
     def accounts(self) -> Iterator[AccountAPI]:
         for keyfile in self._keyfiles:
-            yield KeyfileAccount(keyfile_path=keyfile)
+            if keyfile.stem not in self.loaded_accounts:
+                keyfile_account = KeyfileAccount(keyfile_path=keyfile)
+                self.loaded_accounts[keyfile.stem] = keyfile_account
+
+            yield self.loaded_accounts[keyfile.stem]
 
     def __len__(self) -> int:
         return len([*self._keyfiles])
@@ -47,20 +69,13 @@ class KeyfileAccount(AccountAPI):
     keyfile_path: Path
     locked: bool = True
     __autosign: bool = False
-    __cached_key: Optional[HexBytes] = None
+    __cached_key: Optional[bytes] = None
 
-    def __repr__(self):
+    @log_instead_of_fail(default="<KeyfileAccount>")
+    def __repr__(self) -> str:
         # NOTE: Prevent errors from preventing repr from working.
-        try:
-            address_str = f" address={self.address} "
-        except Exception:
-            address_str = ""
-
-        try:
-            alias_str = f" alias={self.alias} "
-        except Exception:
-            alias_str = ""
-
+        address_str = f" address={self.address} " if self.address else ""
+        alias_str = f" alias={self.alias} " if self.alias else ""
         return f"<{self.__class__.__name__}{address_str}{alias_str}>"
 
     @property
@@ -72,11 +87,11 @@ class KeyfileAccount(AccountAPI):
         return json.loads(self.keyfile_path.read_text())
 
     @property
-    def address(self) -> AddressType:
+    def address(self) -> "AddressType":
         return self.network_manager.ethereum.decode_address(self.keyfile["address"])
 
     @property
-    def __key(self) -> HexBytes:
+    def __key(self) -> bytes:
         if self.__cached_key is not None:
             if not self.locked:
                 logger.warning("Using cached key for %s", self.alias)
@@ -91,6 +106,24 @@ class KeyfileAccount(AccountAPI):
             self.__cached_key = key
 
         return key
+
+    @property
+    def public_key(self) -> HexBytes:
+        if "public_key" in self.keyfile:
+            return HexBytes(bytes.fromhex(self.keyfile["public_key"]))
+        key = self.__key
+
+        # Derive the public key from the private key
+        pk = keys.PrivateKey(key)
+        # convert from eth_keys.datatypes.PublicKey to str to make it HexBytes
+        publicKey = str(pk.public_key)
+
+        key_file_data = self.keyfile
+        key_file_data["public_key"] = publicKey[2:]
+
+        self.keyfile_path.write_text(json.dumps(key_file_data), encoding="utf8")
+
+        return HexBytes(bytes.fromhex(publicKey[2:]))
 
     def unlock(self, passphrase: Optional[str] = None):
         if not passphrase:
@@ -121,7 +154,9 @@ class KeyfileAccount(AccountAPI):
         key = self.__key
 
         passphrase = self._prompt_for_passphrase("Create new passphrase", confirmation_prompt=True)
-        self.keyfile_path.write_text(json.dumps(EthAccount.encrypt(key, passphrase)))
+        self.keyfile_path.write_text(
+            json.dumps(EthAccount.encrypt(key, passphrase)), encoding="utf8"
+        )
 
     def delete(self):
         passphrase = self._prompt_for_passphrase(
@@ -130,25 +165,74 @@ class KeyfileAccount(AccountAPI):
         self.__decrypt_keyfile(passphrase)
         self.keyfile_path.unlink()
 
-    def sign_message(self, msg: SignableMessage) -> Optional[MessageSignature]:
-        user_approves = self.__autosign or click.confirm(f"{msg}\n\nSign: ")
-        if not user_approves:
+    def sign_message(self, msg: Any, **signer_options) -> Optional[MessageSignature]:
+        if isinstance(msg, str):
+            display_msg = f"Signing raw string: '{msg}'"
+            msg = encode_defunct(text=msg)
+
+        elif isinstance(msg, int):
+            display_msg = f"Signing raw integer: {msg}"
+            msg = encode_defunct(hexstr=to_hex(msg))
+
+        elif isinstance(msg, bytes):
+            display_msg = f"Signing raw bytes: '{to_hex(msg)}'"
+            msg = encode_defunct(primitive=msg)
+
+        elif isinstance(msg, EIP712Message):
+            # Display message data to user
+            display_msg = "Signing EIP712 Message\n"
+
+            # Domain Data
+            display_msg += "Domain\n"
+            if msg._name_:
+                display_msg += f"\tName: {msg._name_}\n"
+            if msg._version_:
+                display_msg += f"\tVersion: {msg._version_}\n"
+            if msg._chainId_:
+                display_msg += f"\tChain ID: {msg._chainId_}\n"
+            if msg._verifyingContract_:
+                display_msg += f"\tContract: {msg._verifyingContract_}\n"
+            if msg._salt_:
+                display_msg += f"\tSalt: {to_hex(msg._salt_)}\n"
+
+            # Message Data
+            display_msg += "Message\n"
+            for field, value in msg._body_["message"].items():
+                if isinstance(value, bytes):
+                    value = to_hex(value)
+                display_msg += f"\t{field}: {value}\n"
+
+            # Convert EIP712Message to SignableMessage for handling below
+            msg = msg.signable_message
+
+        elif isinstance(msg, SignableMessage):
+            display_msg = str(msg)
+
+        else:
+            logger.warning("Unsupported message type, (type=%r, msg=%r)", type(msg), msg)
             return None
 
-        signed_msg = EthAccount.sign_message(msg, self.__key)
+        if self.__autosign or click.confirm(f"{display_msg}\n\nSign: "):
+            signed_msg = EthAccount.sign_message(msg, self.__key)
+
+        else:
+            return None
+
         return MessageSignature(
             v=signed_msg.v,
             r=to_bytes(signed_msg.r),
             s=to_bytes(signed_msg.s),
         )
 
-    def sign_transaction(self, txn: TransactionAPI, **kwargs) -> Optional[TransactionAPI]:
+    def sign_transaction(
+        self, txn: "TransactionAPI", **signer_options
+    ) -> Optional["TransactionAPI"]:
         user_approves = self.__autosign or click.confirm(f"{txn}\n\nSign: ")
         if not user_approves:
             return None
 
         signature = EthAccount.sign_transaction(
-            txn.dict(exclude_none=True, by_alias=True), self.__key
+            txn.model_dump(exclude_none=True, by_alias=True), self.__key
         )
         txn.signature = TransactionSignature(
             v=signature.v,
@@ -157,6 +241,28 @@ class KeyfileAccount(AccountAPI):
         )
 
         return txn
+
+    def sign_raw_msghash(self, msghash: HexBytes) -> Optional[MessageSignature]:
+        logger.warning(
+            "Signing a raw hash directly is a dangerous action which could risk "
+            "substantial losses! Only confirm if you are 100% sure of the origin!"
+        )
+
+        # NOTE: Signing a raw hash is so dangerous, we don't want to allow autosigning it
+        if not click.confirm("Please confirm you wish to sign using `EthAccount.signHash`"):
+            return None
+
+        # Ignoring misleading deprecated warning from web3.py.
+        # Also, we have already warned the user about the safety.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            signed_msg = sign_hash(msghash, self.__key)
+
+        return MessageSignature(
+            v=signed_msg.v,
+            r=to_bytes(signed_msg.r),
+            s=to_bytes(signed_msg.s),
+        )
 
     def set_autosign(self, enabled: bool, passphrase: Optional[str] = None):
         """
@@ -185,8 +291,95 @@ class KeyfileAccount(AccountAPI):
             **kwargs,
         )
 
-    def __decrypt_keyfile(self, passphrase: str) -> HexBytes:
+    def __decrypt_keyfile(self, passphrase: str) -> bytes:
         try:
             return EthAccount.decrypt(self.keyfile, passphrase)
         except ValueError as err:
             raise InvalidPasswordError() from err
+
+
+def _write_and_return_account(
+    alias: str, passphrase: str, account: "LocalAccount"
+) -> KeyfileAccount:
+    """Write an account to disk and return an Ape KeyfileAccount"""
+    path = ManagerAccessMixin.account_manager.containers["accounts"].data_folder.joinpath(
+        f"{alias}.json"
+    )
+    path.write_text(json.dumps(EthAccount.encrypt(account.key, passphrase)), encoding="utf8")
+
+    return KeyfileAccount(keyfile_path=path)
+
+
+def generate_account(
+    alias: str, passphrase: str, hd_path: str = ETHEREUM_DEFAULT_PATH, word_count: int = 12
+) -> tuple[KeyfileAccount, str]:
+    """
+    Generate a new account.
+
+    Args:
+        alias (str): The alias name of the account.
+        passphrase (str): Passphrase used to encrypt the account storage file.
+        hd_path (str): The hierarchal deterministic path to use when generating the account.
+            Defaults to `m/44'/60'/0'/0/0`.
+        word_count (int): The amount of words to use in the generated mnemonic.
+
+    Returns:
+        Tuple of :class:`~ape_accounts.accounts.KeyfileAccount` and mnemonic for the generated
+        account.
+    """
+    EthAccount.enable_unaudited_hdwallet_features()
+
+    alias = _validate_account_alias(alias)
+    passphrase = _validate_account_passphrase(passphrase)
+
+    account, mnemonic = EthAccount.create_with_mnemonic(num_words=word_count, account_path=hd_path)
+    ape_account = _write_and_return_account(alias, passphrase, account)
+    return ape_account, mnemonic
+
+
+def import_account_from_mnemonic(
+    alias: str, passphrase: str, mnemonic: str, hd_path: str = ETHEREUM_DEFAULT_PATH
+) -> KeyfileAccount:
+    """
+    Import a new account from a mnemonic seed phrase.
+
+    Args:
+        alias (str): The alias name of the account.
+        passphrase (str): Passphrase used to encrypt the account storage file.
+        mnemonic (str): List of space-separated words representing the mnemonic seed phrase.
+        hd_path (str): The hierarchal deterministic path to use when generating the account.
+            Defaults to `m/44'/60'/0'/0/0`.
+
+    Returns:
+        Tuple of AccountAPI and mnemonic for the generated account.
+    """
+    EthAccount.enable_unaudited_hdwallet_features()
+
+    alias = _validate_account_alias(alias)
+    passphrase = _validate_account_passphrase(passphrase)
+
+    account = EthAccount.from_mnemonic(mnemonic, account_path=hd_path)
+
+    return _write_and_return_account(alias, passphrase, account)
+
+
+def import_account_from_private_key(
+    alias: str, passphrase: str, private_key: str
+) -> KeyfileAccount:
+    """
+    Import a new account from a mnemonic seed phrase.
+
+    Args:
+        alias (str): The alias name of the account.
+        passphrase (str): Passphrase used to encrypt the account storage file.
+        private_key (str): Hex string private key to import.
+
+    Returns:
+        Tuple of AccountAPI and mnemonic for the generated account.
+    """
+    alias = _validate_account_alias(alias)
+    passphrase = _validate_account_passphrase(passphrase)
+
+    account = EthAccount.from_key(to_bytes(hexstr=private_key))
+
+    return _write_and_return_account(alias, passphrase, account)

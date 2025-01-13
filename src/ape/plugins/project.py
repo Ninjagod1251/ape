@@ -1,8 +1,10 @@
-from typing import Dict, Iterator, Type
-
-from ape.api import DependencyAPI, ProjectAPI
+from collections.abc import Iterator
+from typing import TYPE_CHECKING
 
 from .pluggy_patch import PluginType, hookspec
+
+if TYPE_CHECKING:
+    from ape.api.projects import DependencyAPI, ProjectAPI
 
 
 class ProjectPlugin(PluginType):
@@ -15,12 +17,12 @@ class ProjectPlugin(PluginType):
     """
 
     @hookspec  # type: ignore[empty-body]
-    def projects(self) -> Iterator[Type[ProjectAPI]]:
+    def projects(self) -> Iterator[type["ProjectAPI"]]:
         """
         A hook that returns a :class:`~ape.api.projects.ProjectAPI` subclass type.
 
         Returns:
-            Type[:class:`~ape.api.projects.ProjectAPI`]
+            type[:class:`~ape.api.projects.ProjectAPI`]
         """
 
 
@@ -31,7 +33,7 @@ class DependencyPlugin(PluginType):
     """
 
     @hookspec
-    def dependencies(self) -> Dict[str, Type[DependencyAPI]]:  # type: ignore[empty-body]
+    def dependencies(self) -> dict[str, type["DependencyAPI"]]:  # type: ignore[empty-body]
         """
         A hook that returns a :class:`~ape.api.projects.DependencyAPI` mapped
         to its ``ape-config.yaml`` file dependencies special key. For example,
@@ -40,5 +42,5 @@ class DependencyPlugin(PluginType):
         will automatically use this ``DependencyAPI`` implementation.
 
         Returns:
-            Type[:class:`~ape.api.projects.DependencyAPI`]
+            type[:class:`~ape.api.projects.DependencyAPI`]
         """

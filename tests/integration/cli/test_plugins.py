@@ -1,15 +1,13 @@
-from typing import List, Tuple
-
 import pytest
 
-from tests.integration.cli.utils import github_xfail
+from tests.integration.cli.utils import github_xfail, run_once
 
 TEST_PLUGIN_NAME = "tokens"
 TEST_PLUGIN_NAME_2 = "optimism"
 
 
 class PluginsList(list):
-    def __init__(self, header: str, lines: List[str]):
+    def __init__(self, header: str, lines: list[str]):
         self.header = header
         self.contains_version = len(lines[0].split(" ")) > 1 if lines else False
         names = [x.split(" ")[0].strip() for x in lines]
@@ -21,7 +19,7 @@ class ListResult:
     INSTALLED_KEY = "Installed Plugins"
     AVAILABLE_KEY = "Available Plugins"
 
-    def __init__(self, lines: List[str]):
+    def __init__(self, lines: list[str]):
         self._lines = lines
 
     @classmethod
@@ -70,11 +68,11 @@ class ListResult:
         plugins = _clean(self._lines[start:])
         return PluginsList(self.AVAILABLE_KEY, plugins)
 
-    def _get_next_index(self, start_options: Tuple[str, ...], default: int = 0) -> int:
+    def _get_next_index(self, start_options: tuple[str, ...], default: int = 0) -> int:
         return _get_next_index(self._lines, start_options=start_options, default=default)
 
 
-def _get_next_index(lines: List[str], start_options: Tuple[str, ...], default: int = 0) -> int:
+def _get_next_index(lines: list[str], start_options: tuple[str, ...], default: int = 0) -> int:
     for index, line in enumerate(lines):
         if line in start_options:
             return index
@@ -91,7 +89,12 @@ def installed_plugin(ape_plugins_runner):
     plugin_installed = TEST_PLUGIN_NAME in ape_plugins_runner.invoke_list().installed_plugins
     did_install = False
     if not plugin_installed:
-        install_result = ape_plugins_runner.invoke(["install", TEST_PLUGIN_NAME])
+        install_result = ape_plugins_runner.invoke(
+            (
+                "install",
+                TEST_PLUGIN_NAME,
+            )
+        )
         list_result = ape_plugins_runner.invoke_list()
         plugins_list_output = list_result.installed_plugins
         did_install = TEST_PLUGIN_NAME in plugins_list_output
@@ -101,7 +104,7 @@ def installed_plugin(ape_plugins_runner):
     yield
 
     if did_install:
-        ape_plugins_runner.invoke(["uninstall", TEST_PLUGIN_NAME])
+        ape_plugins_runner.invoke(("uninstall", TEST_PLUGIN_NAME))
 
 
 @github_xfail()
@@ -112,7 +115,7 @@ def test_list_excludes_core_plugins(ape_plugins_runner):
     assert not result.available_plugins
     assert "console" not in result.installed_plugins, message("console")
     assert "networks" not in result.installed_plugins, message("networks")
-    assert "geth" not in result.installed_plugins, message("geth")
+    assert "node" not in result.installed_plugins, message("node")
 
 
 @github_xfail()
@@ -123,43 +126,48 @@ def test_list_include_version(ape_plugins_runner, installed_plugin):
 
 @github_xfail()
 def test_list_does_not_repeat(ape_plugins_runner, installed_plugin):
-    result = ape_plugins_runner.invoke_list(["--all"])
+    result = ape_plugins_runner.invoke_list(("--all",))
     assert "ethereum" in result.core_plugins
     assert "ethereum" not in result.installed_plugins
     assert "ethereum" not in result.available_plugins
 
 
-@github_xfail()
-def test_upgrade(ape_plugins_runner, installed_plugin):
-    result = ape_plugins_runner.invoke(["install", TEST_PLUGIN_NAME, "--upgrade"])
+@pytest.mark.pip
+@run_once
+def test_install_upgrade(ape_plugins_runner, installed_plugin):
+    result = ape_plugins_runner.invoke(("install", TEST_PLUGIN_NAME, "--upgrade"))
     assert result.exit_code == 0
 
 
-@github_xfail()
-def test_upgrade_failure(ape_plugins_runner):
-    result = ape_plugins_runner.invoke(["install", "NOT_EXISTS", "--upgrade"])
+@pytest.mark.pip
+@run_once
+def test_install_upgrade_failure(ape_plugins_runner):
+    result = ape_plugins_runner.invoke(("install", "NOT_EXISTS", "--upgrade"))
     assert result.exit_code == 1
 
 
-@github_xfail()
+@pytest.mark.pip
+@run_once
 def test_install_multiple_in_one_str(ape_plugins_runner):
-    result = ape_plugins_runner.invoke(["install", f"{TEST_PLUGIN_NAME} {TEST_PLUGIN_NAME_2}"])
+    result = ape_plugins_runner.invoke(("install", f"{TEST_PLUGIN_NAME} {TEST_PLUGIN_NAME_2}"))
     assert result.exit_code == 0
 
 
-@github_xfail()
+@pytest.mark.pip
+@run_once
 def test_install_from_config_file(ape_cli, runner, temp_config):
     plugins_config = {"plugins": [{"name": TEST_PLUGIN_NAME}]}
     with temp_config(plugins_config):
-        result = runner.invoke(ape_cli, ["plugins", "install", "."], catch_exceptions=False)
+        result = runner.invoke(ape_cli, ("plugins", "install", "."), catch_exceptions=False)
         assert result.exit_code == 0, result.output
         assert TEST_PLUGIN_NAME in result.stdout
 
 
-@github_xfail()
+@pytest.mark.pip
+@run_once
 def test_uninstall(ape_cli, runner, installed_plugin):
     result = runner.invoke(
-        ape_cli, ["plugins", "uninstall", TEST_PLUGIN_NAME, "--yes"], catch_exceptions=False
+        ape_cli, ("plugins", "uninstall", TEST_PLUGIN_NAME, "--yes"), catch_exceptions=False
     )
     assert result.exit_code == 0, result.output
     assert TEST_PLUGIN_NAME in result.output

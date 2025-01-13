@@ -1,14 +1,12 @@
-import subprocess
-import sys
-from contextlib import contextmanager
-from distutils.dir_util import copy_tree
 from importlib import import_module
 from pathlib import Path
-from typing import Dict, List, Optional
+from shutil import copytree
+from typing import Optional
 
 import pytest
 
-from ape.managers.config import CONFIG_FILE_NAME
+from ape import Project
+from tests.conftest import ApeSubprocessRunner
 
 from .test_plugins import ListResult
 from .utils import NodeId, __project_names__, __projects_directory__, project_skipper
@@ -22,7 +20,11 @@ class IntegrationTestModule:
     def __init__(self, path: Path):
         self._path = path
         module = import_module(f"tests.integration.cli.{path.stem}")
-        test_methods = [getattr(module, t) for t in dir(module) if t.startswith("test_")]
+        test_methods = [
+            getattr(module, t)
+            for t in dir(module)
+            if t.startswith("test_") and hasattr(t, "__name__") and hasattr(t, "__module__")
+        ]
         self.tests = [NodeId(t) for t in test_methods]
 
     def __iter__(self):
@@ -55,7 +57,10 @@ def pytest_collection_modifyitems(session, config, items):
         item_name_parts = item.name.split("[")
         item_name_parts = [p.strip("[]") for p in item_name_parts]
 
-        module_full_name = item.module.__name__
+        module_full_name = getattr(item.module, "__name__", None)
+        if not module_full_name:
+            continue
+
         module_name = module_full_name.split(".")[-1]
         test_name = item_name_parts[0]
 
@@ -80,23 +85,31 @@ def pytest_collection_modifyitems(session, config, items):
     items[:] = modified_items
 
 
-@pytest.fixture(autouse=True)
-def project_dir_map(project_folder):
+@pytest.fixture(autouse=True, scope="session")
+def project_dir_map():
     """
     Ensure only copying projects once to prevent `TooManyOpenFilesError`.
     """
 
     class ProjectDirCache:
-        project_map: Dict[str, Path] = {}
+        project_map: dict[str, Path] = {}
 
         def load(self, name: str) -> Path:
+            base_path = Path(__file__).parent / "projects"
             if name in self.project_map:
-                # Already copied.
-                return self.project_map[name]
+                res = self.project_map[name]
+                if res.is_dir():
+                    # Already copied and still exists!
+                    return res
 
+            # Either re-copy or copy for the first time.
             project_source_dir = __projects_directory__ / name
-            project_dest_dir = project_folder / project_source_dir.name
-            copy_tree(str(project_source_dir), str(project_dest_dir))
+            project_dest_dir = base_path / project_source_dir.name
+            project_dest_dir.parent.mkdir(exist_ok=True, parents=True)
+
+            if not project_dest_dir.is_dir():
+                copytree(project_source_dir, project_dest_dir)
+
             self.project_map[name] = project_dest_dir
             return self.project_map[name]
 
@@ -104,10 +117,18 @@ def project_dir_map(project_folder):
 
 
 @pytest.fixture(autouse=True, params=__project_names__)
-def project(request, config, project_dir_map):
+def integ_project(request, project_dir_map):
     project_dir = project_dir_map.load(request.param)
-    with config.using_project(project_dir) as project:
-        yield project
+    if not project_dir.is_dir():
+        # Should not happen because of logic in fixture,
+        # but just in case!
+        pytest.fail("Setup failed - project dir not exists.")
+
+    root_project = Project(project_dir)
+    # Using tmp project so no .build folder get kept around.
+    with root_project.isolate_in_tempdir(name=request.param) as tmp_project:
+        assert tmp_project.path.is_dir(), "Setup failed - tmp-project dir not exists"
+        yield tmp_project
 
 
 @pytest.fixture(scope="session")
@@ -130,104 +151,24 @@ def clean_cache(project):
     Use this fixture to ensure a project
     does not have a cached compilation.
     """
-    cache_file = project.local_project.manifest_cachefile
-    if cache_file.is_file():
-        cache_file.unlink()
-
+    project.clean()
     yield
-
-    if cache_file.is_file():
-        cache_file.unlink()
-
-
-class ApeSubprocessRunner:
-    """
-    Same CLI commands are better tested using a python subprocess,
-    such as `ape test` commands because duplicate pytest main methods
-    do not run well together, or `ape plugins` commands, which may
-    modify installed plugins.
-    """
-
-    def __init__(self, root_cmd: Optional[List[str]] = None):
-        ape_path = Path(sys.executable).parent / "ape"
-        self.root_cmd = [str(ape_path), *(root_cmd or [])]
-
-    def invoke(self, subcommand: Optional[List[str]] = None):
-        subcommand = subcommand or []
-        cmd_ls = [*self.root_cmd, *subcommand]
-        completed_process = subprocess.run(cmd_ls, capture_output=True, text=True)
-        return SubprocessResult(completed_process)
-
-
-class SubprocessResult:
-    def __init__(self, completed_process: subprocess.CompletedProcess):
-        self._completed_process = completed_process
-
-    @property
-    def exit_code(self) -> int:
-        return self._completed_process.returncode
-
-    @property
-    def output(self) -> str:
-        return self._completed_process.stdout
+    project.clean()
 
 
 @pytest.fixture(scope="session")
-def subprocess_runner(subprocess_runner_cls):
-    return subprocess_runner_cls()
-
-
-@pytest.fixture
-def switch_config(config):
-    """
-    A config-context switcher for Integration tests.
-    It will change the contents of the active project's config file,
-    reload it, yield, and change it back. Useful for testing different
-    config scenarios without having to create entire new projects.
-    """
-
-    def replace_config(config_file, new_content: str):
-        if config_file.is_file():
-            config_file.unlink()
-
-        config_file.touch()
-        config_file.write_text(new_content)
-
-    @contextmanager
-    def switch(project, new_content: str):
-        config_file = project.path / CONFIG_FILE_NAME
-        original = config_file.read_text() if config_file.is_file() else None
-
-        try:
-            replace_config(config_file, new_content)
-            config.load(force_reload=True)
-            yield
-        finally:
-            if original:
-                replace_config(config_file, original)
-            elif config_file.is_file():
-                # Delete created config.
-                config_file.unlink()
-
-        # Reload back
-        config.load(force_reload=True)
-
-    return switch
-
-
-@pytest.fixture(scope="module")
-def ape_plugins_runner():
+def ape_plugins_runner(config):
     """
     Use subprocess runner so can manipulate site packages and see results.
     """
 
     class PluginSubprocessRunner(ApeSubprocessRunner):
         def __init__(self):
-            super().__init__(["plugins"])
+            super().__init__("plugins", data_folder=config.DATA_FOLDER)
 
-        def invoke_list(self, arguments: Optional[List] = None):
+        def invoke_list(self, arguments: Optional[list] = None):
             arguments = arguments or []
-            result = self.invoke(["list", *arguments])
+            result = self.invoke("list", *arguments)
             assert result.exit_code == 0, result.output
             return ListResult.parse_output(result.output)
 

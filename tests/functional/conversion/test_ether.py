@@ -6,6 +6,8 @@ from hypothesis import strategies as st
 from ape.exceptions import ConversionError
 from ape_ethereum._converters import ETHER_UNITS
 
+TEN_THOUSAND_ETHER_IN_WEI = 10_000_000_000_000_000_000_000
+
 
 @pytest.mark.fuzzing
 @given(
@@ -18,28 +20,38 @@ from ape_ethereum._converters import ETHER_UNITS
     unit=st.sampled_from(list(ETHER_UNITS.keys())),
 )
 def test_ether_conversions(value, unit, convert):
-    actual = convert(value=f"{value} {unit}", type=int)
+    currency_str = f"{value} {unit}"
+    actual = convert(currency_str, int)
     expected = int(value * ETHER_UNITS[unit])
     assert actual == expected
+    # Also show can compare directly with str.
+    assert actual == currency_str
 
 
 def test_bad_type(convert):
     with pytest.raises(ConversionError) as err:
-        convert(value="something", type=float)
+        convert("something", float)
 
     expected = (
-        "Type '<class 'float'>' must be one of "
-        "[ChecksumAddress, bytes, int, Decimal, list, tuple, bool, str]."
+        "Type '<class 'float'>' must be one of " "[AddressType, bytes, int, Decimal, bool, str]."
     )
     assert str(err.value) == expected
 
 
 def test_no_registered_converter(convert):
     with pytest.raises(ConversionError) as err:
-        convert(value="something", type=ChecksumAddress)
+        convert("something", ChecksumAddress)
 
     assert str(err.value) == "No conversion registered to handle 'something'."
 
 
-def test_lists(convert):
-    assert convert(["1 ether"], list) == [int(1e18)]
+@pytest.mark.parametrize("sep", (",", "_"))
+def test_separaters(convert, sep):
+    """
+    Show that separates, such as commands and underscores, are OK
+    in currency-string values, e.g. "10,000 ETH" is valid.
+    """
+    currency_str = f"10{sep}000 ETHER"
+    actual = convert(currency_str, int)
+    expected = TEN_THOUSAND_ETHER_IN_WEI
+    assert actual == expected

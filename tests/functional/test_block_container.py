@@ -1,11 +1,10 @@
 import time
 from queue import Queue
-from typing import List
 
 import pytest
-from ethpm_types import HexBytes
+from eth_pydantic_types import HexBytes
 
-from ape.exceptions import ChainError
+from ape.exceptions import ChainError, ProviderError
 
 
 def test_iterate_blocks(chain_that_mined_5):
@@ -61,7 +60,7 @@ def test_block_range_negative_start(chain_that_mined_5):
     with pytest.raises(ValueError) as err:
         _ = [b for b in chain_that_mined_5.blocks.range(-1, 3, step=2)]
 
-    assert "ensure this value is greater than or equal to 0" in str(err.value)
+    assert "Input should be greater than or equal to 0" in str(err.value)
 
 
 def test_block_range_out_of_order(chain_that_mined_5):
@@ -135,7 +134,7 @@ def test_poll_blocks_reorg(chain_that_mined_5, eth_tester_provider, owner, PollD
     ape_caplog.assert_last_log(expected_error)
 
     # Show that there are duplicate blocks
-    block_numbers: List[int] = [blocks.get().number for _ in range(6)]
+    block_numbers: list[int] = [blocks.get().number for _ in range(6)]
     assert len(set(block_numbers)) < len(block_numbers)
 
 
@@ -144,6 +143,53 @@ def test_poll_blocks_timeout(
 ):
     poller = chain_that_mined_5.blocks.poll_blocks(new_block_timeout=1)
 
-    with pytest.raises(ChainError, match=r"Timed out waiting for new block \(time_waited=1.\d+\)."):
+    with pytest.raises(ProviderError, match=r"Timed out waiting for next block."):
         with PollDaemon("blocks", poller, lambda x: None, lambda: False):
             time.sleep(1.5)
+
+
+def test_poll_blocks_reorg_with_timeout(
+    vyper_contract_instance, chain_that_mined_5, eth_tester_provider, owner, PollDaemon, ape_caplog
+):
+    blocks: Queue = Queue(maxsize=6)
+    poller = chain_that_mined_5.blocks.poll_blocks(new_block_timeout=1)
+
+    with pytest.raises(ProviderError, match=r"Timed out waiting for next block."):
+        with PollDaemon("blocks", poller, blocks.put, blocks.full):
+            # Sleep first to ensure listening before mining.
+            time.sleep(1)
+
+            snapshot = chain_that_mined_5.snapshot()
+            chain_that_mined_5.mine(2)
+
+            # Wait to allow blocks before re-org to get yielded
+            time.sleep(5)
+
+            # Simulate re-org by reverting to the snapshot
+            chain_that_mined_5.restore(snapshot)
+
+            # Allow it time to trigger realizing there was a re-org
+            time.sleep(1)
+            chain_that_mined_5.mine(2)
+            time.sleep(1)
+
+            chain_that_mined_5.mine(3)
+
+
+def test_poll_blocks_future(chain_that_mined_5, eth_tester_provider, owner, PollDaemon):
+    blocks: Queue = Queue(maxsize=3)
+    poller = chain_that_mined_5.blocks.poll_blocks(
+        start_block=chain_that_mined_5.blocks.head.number + 1
+    )
+
+    with PollDaemon("blocks", poller, blocks.put, blocks.full):
+        # Sleep first to ensure listening before mining.
+        time.sleep(1)
+        eth_tester_provider.mine(3)
+
+    assert blocks.full()
+    first = blocks.get().number
+    second = blocks.get().number
+    third = blocks.get().number
+    assert first == second - 1
+    assert second == third - 1

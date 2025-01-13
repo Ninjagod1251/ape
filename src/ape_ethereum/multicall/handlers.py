@@ -1,7 +1,10 @@
+from collections.abc import Iterator
+from functools import cached_property
 from types import ModuleType
-from typing import Any, Dict, Iterator, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 
-from ape.api import ReceiptAPI, TransactionAPI
+from ethpm_types import ContractType
+
 from ape.contracts.base import (
     ContractCallHandler,
     ContractInstance,
@@ -11,9 +14,8 @@ from ape.contracts.base import (
 )
 from ape.exceptions import ChainError, DecodingError
 from ape.logging import logger
-from ape.types import AddressType, ContractType, HexBytes
-from ape.utils import ManagerAccessMixin, cached_property
 from ape.utils.abi import MethodABI
+from ape.utils.basemodel import ManagerAccessMixin
 
 from .constants import (
     MULTICALL3_ADDRESS,
@@ -21,21 +23,27 @@ from .constants import (
     MULTICALL3_CONTRACT_TYPE,
     SUPPORTED_CHAINS,
 )
-from .exceptions import InvalidOption, NotExecutedError, UnsupportedChainError, ValueRequired
+from .exceptions import InvalidOption, UnsupportedChainError, ValueRequired
+
+if TYPE_CHECKING:
+    from eth_pydantic_types import HexBytes
+
+    from ape.api.transactions import ReceiptAPI, TransactionAPI
+    from ape.types.address import AddressType
 
 
 class BaseMulticall(ManagerAccessMixin):
     def __init__(
         self,
-        address: AddressType = MULTICALL3_ADDRESS,
-        supported_chains: Optional[List[int]] = None,
+        address: "AddressType" = MULTICALL3_ADDRESS,
+        supported_chains: Optional[list[int]] = None,
     ) -> None:
         """
         Initialize a new Multicall session object. By default, there are no calls to make.
         """
         self.address = address
         self.supported_chains = supported_chains or SUPPORTED_CHAINS
-        self.calls: List[Dict] = []
+        self.calls: list[dict] = []
 
     @classmethod
     def inject(cls) -> ModuleType:
@@ -73,7 +81,7 @@ class BaseMulticall(ManagerAccessMixin):
             # else use our backend (with less methods)
             contract = self.chain_manager.contracts.instance_at(
                 MULTICALL3_ADDRESS,
-                contract_type=ContractType.parse_obj(MULTICALL3_CONTRACT_TYPE),
+                contract_type=ContractType.model_validate(MULTICALL3_CONTRACT_TYPE),
             )
 
         if self.provider.chain_id not in self.supported_chains and contract.code != MULTICALL3_CODE:
@@ -87,19 +95,15 @@ class BaseMulticall(ManagerAccessMixin):
         if any(call["value"] > 0 for call in self.calls):
             return self.contract.aggregate3Value
 
-        elif any(call["allowFailure"] for call in self.calls):
-            return self.contract.aggregate3
-
-        else:
-            return self.contract.aggregate
+        return self.contract.aggregate3
 
     def add(
         self,
         call: ContractMethodHandler,
         *args,
-        allowFailure: bool = False,
+        allowFailure: bool = True,
         value: int = 0,
-    ):
+    ) -> "BaseMulticall":
         """
         Adds a call to the Multicall session object.
 
@@ -113,6 +117,10 @@ class BaseMulticall(ManagerAccessMixin):
             *args: The arguments to invoke the method with.
             allowFailure (bool): Whether the call is allowed to fail.
             value (int): The amount of ether to forward with the call.
+
+        Returns:
+            :class:`~ape_ethereum.multicall.handlers.BaseMulticall`: returns itself
+              to emulate a builder pattern.
         """
 
         # Append call dict to the list
@@ -126,6 +134,7 @@ class BaseMulticall(ManagerAccessMixin):
                 "callData": call.encode_input(*args),
             }
         )
+        return self
 
 
 class Call(BaseMulticall):
@@ -142,18 +151,24 @@ class Call(BaseMulticall):
         ...  # Add as many calls as desired
         call.add(contract.myMethod, *call_args)
         a, b, ..., z = call()  # Performs multicall
+        # or, using a builder pattern:
+        call = multicall.Call()
+            .add(contract.myMethod, *call_args)
+            .add(contract.myMethod, *call_args)
+            ...  # Add as many calls as desired
+            .add(contract.myMethod, *call_args)
+        a, b, ..., z = call()  # Performs multicall
     """
 
     def __init__(
         self,
-        address: AddressType = MULTICALL3_ADDRESS,
-        supported_chains: Optional[List[int]] = None,
+        address: "AddressType" = MULTICALL3_ADDRESS,
+        supported_chains: Optional[list[int]] = None,
     ) -> None:
         super().__init__(address=address, supported_chains=supported_chains)
 
-        self.abis: List[MethodABI] = []
-        self._result: Union[None, Tuple[int, List[HexBytes]], List[Tuple[bool, HexBytes]]] = None
-        self._failed_results: List[HexBytes] = []
+        self.abis: list[MethodABI] = []
+        self._result: Union[None, list[tuple[bool, "HexBytes"]]] = None
 
     @property
     def handler(self) -> ContractCallHandler:  # type: ignore[override]
@@ -165,33 +180,17 @@ class Call(BaseMulticall):
 
         super().add(call, *args, **kwargs)
         self.abis.append(_select_method_abi(call.abis, args))
+        return self
 
     @property
-    def returnData(self) -> List[HexBytes]:
+    def returnData(self) -> list["HexBytes"]:
+        # NOTE: this property is kept camelCase to align with the raw EVM struct
         result = self._result  # Declare for typing reasons.
-        if not result:
-            raise NotExecutedError()
-
-        elif (
-            isinstance(result, (tuple, list))
-            and len(result) >= 2
-            and type(result[0]) is bool
-            and isinstance(result[1], bytes)
-        ):
-            # Call3[] or Call3Value[] when only single call.
-            return [result[1]]
-
-        elif isinstance(result, tuple):
-            # Call3[] or Call3Value[] when multiple calls.
-            return list(r[1] for r in self._result)  # type: ignore
-
-        else:
-            # blockNumber: uint256, returnData: Call[]
-            return result.returnData  # type: ignore
+        return [res.returnData if res.success else None for res in result]  # type: ignore
 
     def _decode_results(self) -> Iterator[Any]:
         for abi, data in zip(self.abis, self.returnData):
-            if data in self._failed_results:
+            if data is None:
                 # The call failed.
                 yield data
                 continue
@@ -229,7 +228,7 @@ class Call(BaseMulticall):
         self._result = self.handler(self.calls, **call_kwargs)
         return self._decode_results()
 
-    def as_transaction(self, **txn_kwargs) -> TransactionAPI:
+    def as_transaction(self, **txn_kwargs) -> "TransactionAPI":
         """
         Encode the Multicall transaction as a ``TransactionAPI`` object, but do not execute it.
 
@@ -253,7 +252,14 @@ class Transaction(BaseMulticall):
         txn.add(contract.myMethod, *call_args)
         ...  # Add as many calls as desired to execute
         txn.add(contract.myMethod, *call_args)
-        a, b, ..., z = txn(sender=my_signer)  # Sends the multicall transaction
+        a, b, ..., z = txn(sender=my_signer).return_data  # Sends the multicall transaction
+        # or, using a builder pattern:
+        txn = Transaction()
+            .add(contract.myMethod, *call_args)
+            .add(contract.myMethod, *call_args)
+            ...  # Add as many calls as desired to execute
+            .add(contract.myMethod, *call_args)
+        a, b, ..., z = txn(sender=my_signer).return_data  # Sends the multicall transaction
     """
 
     def _validate_calls(self, **txn_kwargs) -> None:
@@ -269,7 +275,7 @@ class Transaction(BaseMulticall):
 
         # NOTE: Won't fail if `value` is provided otherwise (won't do anything either)
 
-    def __call__(self, **txn_kwargs) -> ReceiptAPI:
+    def __call__(self, **txn_kwargs) -> "ReceiptAPI":
         """
         Execute the Multicall transaction. The transaction will broadcast again every time
         the ``Transaction`` object is called.
@@ -287,7 +293,7 @@ class Transaction(BaseMulticall):
         self._validate_calls(**txn_kwargs)
         return self.handler(self.calls, **txn_kwargs)
 
-    def as_transaction(self, **txn_kwargs) -> TransactionAPI:
+    def as_transaction(self, **txn_kwargs) -> "TransactionAPI":
         """
         Encode the Multicall transaction as a ``TransactionAPI`` object, but do not execute it.
 

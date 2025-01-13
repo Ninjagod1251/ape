@@ -4,7 +4,7 @@ from tests.conftest import explorer_test
 
 def test_history(sender, receiver, chain):
     length_at_start = len(chain.history[sender].sessional)
-    receipt = sender.transfer(receiver, "1 wei")
+    receipt = sender.transfer(receiver, 1)
     transactions_from_cache = list(sender.history)
     assert len(transactions_from_cache) == length_at_start + 1
     assert sender.history[-1] == receipt
@@ -56,5 +56,4 @@ def test_history_caches_sender_over_address_key(
         # Actual is 0 because the receipt was cached under the sender.
         assert len(actual) == 0
     finally:
-        if "explorer" in network.__dict__:
-            del network.__dict__["explorer"]
+        network.__dict__.pop("explorer", None)

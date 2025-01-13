@@ -1,17 +1,22 @@
 import shlex
+from functools import cached_property
+from pathlib import Path
 
 import click
 from click.testing import CliRunner
 from eth_utils import is_hex
 from IPython import get_ipython
 from IPython.core.magic import Magics, line_magic, magics_class
+from rich import print as rich_print
 
 import ape
 from ape._cli import cli
 from ape.exceptions import Abort, ApeException, handle_ape_exception
 from ape.logging import logger
-from ape.types import AddressType
-from ape.utils import cached_property
+from ape.managers.project import LocalProject
+from ape.types.address import AddressType
+from ape.utils.basemodel import ManagerAccessMixin
+from ape.utils.os import clean_path
 
 
 @magics_class
@@ -75,10 +80,24 @@ class ApeConsoleMagics(Magics):
 
 
 def custom_exception_handler(self, etype, value, tb, tb_offset=None):
-    if not handle_ape_exception(value, [self.user_ns["project"].path]):
+    project = self.user_ns["project"]
+    if isinstance(project, LocalProject):
+        path = project.path
+    else:
+        # This happens if assigned the variable `project` in your session
+        # to something other than ``ape.project``.
+        path = ManagerAccessMixin.local_project.path
+
+    if not handle_ape_exception(value, [path]):
         logger.error(Abort.from_ape_exception(value).format_message())
 
 
 def load_ipython_extension(ipython):
     ipython.register_magics(ApeConsoleMagics)
     ipython.set_custom_exc((ApeException,), custom_exception_handler)
+
+    # This prevents displaying a user's home directory
+    # ever when using `ape console`.
+    ipython.display_formatter.formatters["text/plain"].for_type(
+        Path, lambda x, *args, **kwargs: rich_print(clean_path(x))
+    )

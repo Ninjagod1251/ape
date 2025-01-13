@@ -1,8 +1,10 @@
-from typing import Iterator, Tuple, Type
-
-from ape.api import ConverterAPI
+from collections.abc import Iterator
+from typing import TYPE_CHECKING
 
 from .pluggy_patch import PluginType, hookspec
+
+if TYPE_CHECKING:
+    from ape.api.convert import ConverterAPI
 
 
 class ConversionPlugin(PluginType):
@@ -12,7 +14,7 @@ class ConversionPlugin(PluginType):
     """
 
     @hookspec
-    def converters(self) -> Iterator[Tuple[str, Type[ConverterAPI]]]:  # type: ignore[empty-body]
+    def converters(self) -> Iterator[tuple[str, type["ConverterAPI"]]]:  # type: ignore[empty-body]
         """
         A hook that returns an iterator of tuples of a string ABI type and a
         ``ConverterAPI`` subclass.
@@ -24,5 +26,5 @@ class ConversionPlugin(PluginType):
                 yield int, MweiConversions
 
         Returns:
-            Iterator[tuple[str, Type[:class:`~ape.api.convert.ConverterAPI`]]]
+            Iterator[tuple[str, type[:class:`~ape.api.convert.ConverterAPI`]]]
         """

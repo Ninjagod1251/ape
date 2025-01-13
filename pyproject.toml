@@ -1,5 +1,8 @@
 [build-system]
-requires = ["setuptools>=51.1.1", "wheel", "setuptools_scm[toml]>=5.0,<8"]
+requires = ["setuptools>=75.0.0", "wheel", "setuptools_scm[toml]>=5.0"]
+
+[tool.ape.test]
+show_internal = true
 
 [tool.mypy]
 exclude = ["build/", "dist/", "docs/", "tests/integration/cli/projects/"]
@@ -12,7 +15,7 @@ plugins = ["pydantic.mypy"]
 # This version is purposely set to really high minor so that it should always work
 # with newer, stricter plugin releases.
 # NOTE: This should be bumped with every minor release!
-fallback_version = "0.6.999"
+fallback_version = "0.8.999"
 write_to = "src/ape/version.py"
 
 # NOTE: you have to use single-quoted strings in TOML for regular expressions.
@@ -21,15 +24,23 @@ write_to = "src/ape/version.py"
 # character.
 [tool.black]
 line-length = 100
-target-version = ['py38', 'py39', 'py310']
+target-version = ['py39', 'py310', 'py311', 'py312', 'py313']
 include = '\.pyi?$'
 
 [tool.pytest.ini_options]
 norecursedirs = "projects"
-addopts = "-p no:ape_test"  # NOTE: Prevents the ape plugin from activating on our tests
+
+# NOTE: 'no:ape_test' Prevents the ape plugin from activating on our tests
+#    And 'pytest_ethereum' is not used and causes issues in some environments.
+addopts = """
+-p no:pytest_ethereum
+"""
+
 python_files = "test_*.py"
 testpaths = "tests"
-markers = "fuzzing: Run Hypothesis fuzz test suite"
+markers = """fuzzing: Run Hypothesis fuzz test suite
+pip: tests that rely on pip install operations"""
+timeout = 300
 
 [tool.isort]
 line_length = 100

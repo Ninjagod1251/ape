@@ -1,13 +1,15 @@
-from functools import lru_cache
-from typing import Any, Dict, Iterator, List, Optional, Sequence, Set, Type, Union
+from abc import abstractmethod
+from collections.abc import Iterator, Sequence
+from functools import cache, cached_property
+from typing import Any, Optional, Union
 
 from ethpm_types.abi import EventABI, MethodABI
+from pydantic import NonNegativeInt, PositiveInt, model_validator
 
-from ape._pydantic_compat import BaseModel, NonNegativeInt, PositiveInt, root_validator
 from ape.api.transactions import ReceiptAPI, TransactionAPI
 from ape.logging import logger
-from ape.types import AddressType
-from ape.utils import BaseInterface, BaseInterfaceModel, abstractmethod, cached_property
+from ape.types.address import AddressType
+from ape.utils.basemodel import BaseInterface, BaseInterfaceModel, BaseModel
 
 QueryType = Union[
     "BlockQuery",
@@ -19,10 +21,9 @@ QueryType = Union[
 ]
 
 
-# TODO: Replace with `functools.cache` when Py3.8 dropped
-@lru_cache(maxsize=None)
-def _basic_columns(Model: Type[BaseInterfaceModel]) -> Set[str]:
-    columns = set(Model.__fields__)
+@cache
+def _basic_columns(Model: type[BaseInterfaceModel]) -> set[str]:
+    columns = set(Model.__pydantic_fields__)
 
     # TODO: Remove once `ReceiptAPI` fields cleaned up for better processing
     if Model == ReceiptAPI:
@@ -32,9 +33,8 @@ def _basic_columns(Model: Type[BaseInterfaceModel]) -> Set[str]:
     return columns
 
 
-# TODO: Replace with `functools.cache` when Py3.8 dropped
-@lru_cache(maxsize=None)
-def _all_columns(Model: Type[BaseInterfaceModel]) -> Set[str]:
+@cache
+def _all_columns(Model: type[BaseInterfaceModel]) -> set[str]:
     columns = _basic_columns(Model)
     # NOTE: Iterate down the series of subclasses of `Model` (e.g. Block and BlockAPI)
     #       and get all of the public property methods of each class (which are valid columns)
@@ -54,8 +54,8 @@ def _all_columns(Model: Type[BaseInterfaceModel]) -> Set[str]:
 
 
 def validate_and_expand_columns(
-    columns: Sequence[str], Model: Type[BaseInterfaceModel]
-) -> List[str]:
+    columns: Sequence[str], Model: type[BaseInterfaceModel]
+) -> list[str]:
     if len(columns) == 1 and columns[0] == "*":
         # NOTE: By default, only pull explicit fields
         #       (because they are cheap to pull, but properties might not be)
@@ -83,14 +83,14 @@ def validate_and_expand_columns(
     raise ValueError(err_msg)
 
 
-def _unrecognized_columns(selected_columns: Set[str], all_columns: Set[str]) -> str:
+def _unrecognized_columns(selected_columns: set[str], all_columns: set[str]) -> str:
     unrecognized = "', '".join(sorted(selected_columns - all_columns))
     all_cols = ", ".join(sorted(all_columns))
     return f"Unrecognized field(s) '{unrecognized}', must be one of '{all_cols}'."
 
 
-def extract_fields(item, columns):
-    return [getattr(item, col) for col in columns]
+def extract_fields(item: BaseInterfaceModel, columns: Sequence[str]) -> list[Any]:
+    return [getattr(item, col, None) for col in columns]
 
 
 class _BaseQuery(BaseModel):
@@ -104,9 +104,16 @@ class _BaseBlockQuery(_BaseQuery):
     stop_block: NonNegativeInt
     step: PositiveInt = 1
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
+    @classmethod
     def check_start_block_before_stop_block(cls, values):
-        if values["stop_block"] < values["start_block"]:
+        start_block = values.get("start_block")
+        stop_block = values.get("stop_block")
+        if (
+            isinstance(start_block, int)
+            and isinstance(stop_block, int)
+            and stop_block < start_block
+        ):
             raise ValueError(
                 f"stop_block: '{values['stop_block']}' cannot be less than "
                 f"start_block: '{values['start_block']}'."
@@ -141,8 +148,9 @@ class AccountTransactionQuery(_BaseQuery):
     start_nonce: NonNegativeInt = 0
     stop_nonce: NonNegativeInt
 
-    @root_validator(pre=True)
-    def check_start_nonce_before_stop_nonce(cls, values: Dict) -> Dict:
+    @model_validator(mode="before")
+    @classmethod
+    def check_start_nonce_before_stop_nonce(cls, values: dict) -> dict:
         if values["stop_nonce"] < values["start_nonce"]:
             raise ValueError(
                 f"stop_nonce: '{values['stop_nonce']}' cannot be less than "
@@ -152,8 +160,72 @@ class AccountTransactionQuery(_BaseQuery):
         return values
 
 
-class ContractCreationQuery(_BaseBlockQuery):
+class ContractCreationQuery(_BaseQuery):
+    """
+    A ``QueryType`` that obtains information about contract deployment.
+    Returns ``ContractCreation(txn_hash, block, deployer, factory)``.
+    """
+
     contract: AddressType
+
+
+class ContractCreation(BaseModel, BaseInterface):
+    """
+    Contract-creation metadata, such as the transaction
+    and deployer. Useful for contract-verification,
+    ``block_identifier=`` usage, and other use-cases.
+
+    To get contract-creation metadata, you need a query engine
+    that can provide it, such as the ``ape-etherscan`` plugin
+    or a node connected to the OTS namespace.
+    """
+
+    txn_hash: str
+    """
+    The transaction hash of the deploy transaction.
+    """
+
+    block: int
+    """
+    The block number of the deploy transaction.
+    """
+
+    deployer: AddressType
+    """
+    The contract deployer address.
+    """
+
+    factory: Optional[AddressType] = None
+    """
+    The address of the factory contract, if there is one
+    and it is known (depends on the query provider!).
+    """
+
+    @property
+    def receipt(self) -> ReceiptAPI:
+        """
+        The deploy transaction :class:`~ape.api.transactions.ReceiptAPI`.
+        """
+        return self.chain_manager.get_receipt(self.txn_hash)
+
+    @classmethod
+    def from_receipt(cls, receipt: ReceiptAPI) -> "ContractCreation":
+        """
+        Create a metadata class.
+
+        Args:
+            receipt (:class:`~ape.api.transactions.ReceiptAPI`): The receipt
+              of the deploy transaction.
+
+        Returns:
+            :class:`~ape.api.query.ContractCreation`
+        """
+        return cls(
+            txn_hash=receipt.txn_hash,
+            block=receipt.block_number,
+            deployer=receipt.sender,
+            # factory is not detected since this is meant for eoa deployments
+        )
 
 
 class ContractEventQuery(_BaseBlockQuery):
@@ -162,9 +234,9 @@ class ContractEventQuery(_BaseBlockQuery):
     logs emitted by ``contract`` between ``start_block`` and ``stop_block``.
     """
 
-    contract: Union[AddressType, List[AddressType]]
+    contract: Union[list[AddressType], AddressType]
     event: EventABI
-    search_topics: Optional[Dict[str, Any]] = None
+    search_topics: Optional[dict[str, Any]] = None
 
 
 class ContractMethodQuery(_BaseBlockQuery):
@@ -175,7 +247,7 @@ class ContractMethodQuery(_BaseBlockQuery):
 
     contract: AddressType
     method: MethodABI
-    method_args: Dict[str, Any]
+    method_args: dict[str, Any]
 
 
 class QueryAPI(BaseInterface):

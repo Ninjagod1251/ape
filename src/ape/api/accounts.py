@@ -1,24 +1,38 @@
+import os
+from abc import abstractmethod
+from collections.abc import Iterator
+from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING, Iterator, List, Optional, Type, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 import click
+from eip712.messages import EIP712Message
 from eip712.messages import SignableMessage as EIP712SignableMessage
 from eth_account import Account
+from eth_account.messages import encode_defunct
+from eth_utils import to_hex
+from ethpm_types import ContractType
 
 from ape.api.address import BaseAddress
 from ape.api.transactions import ReceiptAPI, TransactionAPI
 from ape.exceptions import (
     AccountsError,
     AliasAlreadyInUseError,
+    ConversionError,
     MethodNonPayableError,
+    MissingDeploymentBytecodeError,
     SignatureError,
     TransactionError,
 )
 from ape.logging import logger
-from ape.types import AddressType, MessageSignature, SignableMessage
-from ape.utils import BaseInterfaceModel, abstractmethod
+from ape.types.address import AddressType
+from ape.types.signatures import MessageSignature, SignableMessage
+from ape.utils.basemodel import BaseInterfaceModel
+from ape.utils.misc import raises_not_implemented
 
 if TYPE_CHECKING:
+    from eth_pydantic_types import HexBytes
+
     from ape.contracts import ContractContainer, ContractInstance
 
 
@@ -27,12 +41,12 @@ class AccountAPI(BaseInterfaceModel, BaseAddress):
     An API class representing an account.
     """
 
-    def __dir__(self) -> List[str]:
+    def __dir__(self) -> list[str]:
         """
         Display methods to IPython on ``a.[TAB]`` tab completion.
 
         Returns:
-            List[str]: Method names that IPython uses for tab completion.
+            list[str]: Method names that IPython uses for tab completion.
         """
         base_value_excludes = ("code", "codesize", "is_contract")  # Not needed for accounts
         base_values = [v for v in self._base_dir_values if v not in base_value_excludes]
@@ -53,19 +67,39 @@ class AccountAPI(BaseInterfaceModel, BaseAddress):
         """
         return None
 
+    def sign_raw_msghash(self, msghash: "HexBytes") -> Optional[MessageSignature]:
+        """
+        Sign a raw message hash.
+
+        Args:
+          msghash (:class:`~eth_pydantic_types.HexBytes`):
+            The message hash to sign. Plugins may or may not support this operation.
+            Default implementation is to raise ``NotImplementedError``.
+
+        Returns:
+          :class:`~ape.types.signatures.MessageSignature` (optional):
+            The signature corresponding to the message.
+        """
+        raise NotImplementedError(
+            f"Raw message signing is not supported by '{self.__class__.__name__}'"
+        )
+
     @abstractmethod
-    def sign_message(self, msg: SignableMessage) -> Optional[MessageSignature]:
+    def sign_message(self, msg: Any, **signer_options) -> Optional[MessageSignature]:
         """
         Sign a message.
 
         Args:
-          msg (:class:`~ape.types.signatures.SignableMessage`): The message to sign.
+          msg (Any): The message to sign. Account plugins can handle various types of messages.
+            For example, :class:`~ape_accounts.accounts.KeyfileAccount` can handle
+            :class:`~ape.types.signatures.SignableMessage`, str, int, and bytes.
             See these
             `docs <https://eth-account.readthedocs.io/en/stable/eth_account.html#eth_account.messages.SignableMessage>`__  # noqa: E501
-            for more type information on this type.
+            for more type information on the :class:`~ape.types.signatures.SignableMessage` type.
+          **signer_options: Additional kwargs given to the signer to modify the signing operation.
 
         Returns:
-          :class:`~ape.types.signatures.MessageSignature` (optional): The signed message.
+          :class:`~ape.types.signatures.MessageSignature` (optional): The signature corresponding to the message.
         """
 
     @abstractmethod
@@ -79,9 +113,9 @@ class AccountAPI(BaseInterfaceModel, BaseAddress):
 
         Returns:
           :class:`~ape.api.transactions.TransactionAPI` (optional): A signed transaction.
-            The `TransactionAPI` returned by this method may not correspond to `txn` given as input,
-            however returning a properly-formatted transaction here is meant to be executed.
-            Returns `None` if the account does not have a transaction it wishes to execute.
+            The ``TransactionAPI`` returned by this method may not correspond to ``txn`` given as
+            input, however returning a properly-formatted transaction here is meant to be executed.
+            Returns ``None`` if the account does not have a transaction it wishes to execute.
 
         """
 
@@ -107,7 +141,7 @@ class AccountAPI(BaseInterfaceModel, BaseAddress):
             txn (:class:`~ape.api.transactions.TransactionAPI`): An invoke-transaction.
             send_everything (bool): ``True`` will send the difference from balance and fee.
               Defaults to ``False``.
-            private (bool): ``True`` with use the
+            private (bool): ``True`` will use the
               :meth:`~ape.api.providers.ProviderAPI.send_private_transaction` method.
             **signer_options: Additional kwargs given to the signer to modify the signing operation.
 
@@ -159,8 +193,8 @@ class AccountAPI(BaseInterfaceModel, BaseAddress):
     def transfer(
         self,
         account: Union[str, AddressType, BaseAddress],
-        value: Union[str, int, None] = None,
-        data: Union[bytes, str, None] = None,
+        value: Optional[Union[str, int]] = None,
+        data: Optional[Union[bytes, str]] = None,
         private: bool = False,
         **kwargs,
     ) -> ReceiptAPI:
@@ -172,18 +206,33 @@ class AccountAPI(BaseInterfaceModel, BaseAddress):
               and using a provider that does not support private transactions.
 
         Args:
-            account (str): The account to send funds to.
-            value (str): The amount to send.
-            data (str): Extra data to include in the transaction.
+            account (Union[str, AddressType, BaseAddress]): The receiver of the funds.
+            value (Optional[Union[str, int]]): The amount to send.
+            data (Optional[Union[bytes, str]]): Extra data to include in the transaction.
             private (bool): ``True`` asks the provider to make the transaction
-              private. For example, EVM providers uses the RPC ``eth_sendPrivateTransaction``
-              to achieve this. Local providers may ignore this value.
+              private. For example, EVM providers typically use the RPC
+              ``eth_sendPrivateTransaction`` to achieve this. Local providers may ignore
+              this value.
+            **kwargs: Additional transaction kwargs passed to
+              :meth:`~ape.api.networks.EcosystemAPI.create_transaction`, such as ``gas``
+              ``max_fee``, or ``max_priority_fee``. For a list of available transaction
+              kwargs, see :class:`~ape.api.transactions.TransactionAPI`.
 
         Returns:
             :class:`~ape.api.transactions.ReceiptAPI`
         """
+        if isinstance(account, int):
+            raise AccountsError(
+                "Cannot use integer-type for the `receiver` argument in the "
+                "`.transfer()` method (this protects against accidentally passing "
+                "the `value` as the `receiver`)."
+            )
 
-        receiver = self.conversion_manager.convert(account, AddressType)
+        try:
+            receiver = self.conversion_manager.convert(account, AddressType)
+        except ConversionError as err:
+            raise AccountsError(f"Invalid `receiver` value: '{account}'.") from err
+
         txn = self.provider.network.ecosystem.create_transaction(
             sender=self.address, receiver=receiver, **kwargs
         )
@@ -191,13 +240,13 @@ class AccountAPI(BaseInterfaceModel, BaseAddress):
         if data:
             txn.data = self.conversion_manager.convert(data, bytes)
 
-        if not value and not kwargs.get("send_everything"):
+        if value is None and not kwargs.get("send_everything"):
             raise AccountsError("Must provide 'VALUE' or use 'send_everything=True'")
 
-        elif value and kwargs.get("send_everything"):
+        elif value is not None and kwargs.get("send_everything"):
             raise AccountsError("Cannot use 'send_everything=True' with 'VALUE'.")
 
-        elif value:
+        elif value is not None:
             txn.value = self.conversion_manager.convert(value, int)
             if txn.value < 0:
                 raise AccountsError("Value cannot be negative.")
@@ -212,14 +261,35 @@ class AccountAPI(BaseInterfaceModel, BaseAddress):
         deploying and a provider must be active.
 
         Args:
-            contract (:class:`~ape.contracts.ContractContainer`):
-              The type of contract to deploy.
+            contract (:class:`~ape.contracts.base.ContractContainer`): The type of contract to
+              deploy.
             publish (bool): Set to ``True`` to attempt explorer contract verification.
               Defaults to ``False``.
 
         Returns:
             :class:`~ape.contracts.ContractInstance`: An instance of the deployed contract.
         """
+        from ape.contracts import ContractContainer
+
+        if isinstance(contract, ContractType):
+            # Hack to allow deploying ContractTypes w/o being
+            # wrapped in a container first.
+            contract = ContractContainer(contract)
+
+        # NOTE: It is important to type check here to prevent cases where user
+        #    may accidentally pass in a ContractInstance, which has a very
+        #    different implementation for __call__ than ContractContainer.
+        elif not isinstance(contract, ContractContainer):
+            raise TypeError(
+                "contract argument must be a ContractContainer type, "
+                "such as 'project.MyContract' where 'MyContract' is the name of "
+                "a contract in your project."
+            )
+
+        bytecode = contract.contract_type.deployment_bytecode
+        if not bytecode or bytecode.bytecode in (None, "", "0x"):
+            raise MissingDeploymentBytecodeError(contract.contract_type)
+
         txn = contract(*args, **kwargs)
         if kwargs.get("value") and not contract.contract_type.constructor.is_payable:
             raise MethodNonPayableError("Sending funds to a non-payable constructor.")
@@ -237,12 +307,26 @@ class AccountAPI(BaseInterfaceModel, BaseAddress):
         self.chain_manager.contracts.cache_deployment(instance)
 
         if publish:
-            self.project_manager.track_deployment(instance)
+            self.local_project.deployments.track(instance)
             self.provider.network.publish_contract(address)
 
+        instance.base_path = contract.base_path or self.local_project.path
         return instance
 
     def declare(self, contract: "ContractContainer", *args, **kwargs) -> ReceiptAPI:
+        """
+        Deploy the "blueprint" of a contract type. For EVM providers, this likely means
+        using `EIP-5202 <https://eips.ethereum.org/EIPS/eip-5202>`__, which is implemented
+        in the core ``ape-ethereum`` plugin.
+
+        Args:
+            contract (:class:`~ape.contracts.base.ContractContainer`): The contract container
+              to declare.
+
+        Returns:
+            :class:`~ape.api.transactions.ReceiptAPI`: The receipt of the declare transaction.
+        """
+
         transaction = self.provider.network.ecosystem.encode_contract_blueprint(
             contract.contract_type, *args, **kwargs
         )
@@ -258,8 +342,9 @@ class AccountAPI(BaseInterfaceModel, BaseAddress):
 
     def check_signature(
         self,
-        data: Union[SignableMessage, TransactionAPI],
+        data: Union[SignableMessage, TransactionAPI, str, EIP712Message, int, bytes],
         signature: Optional[MessageSignature] = None,  # TransactionAPI doesn't need it
+        recover_using_eip191: bool = True,
     ) -> bool:
         """
         Verify a message or transaction was signed by this account.
@@ -268,11 +353,24 @@ class AccountAPI(BaseInterfaceModel, BaseAddress):
             data (Union[:class:`~ape.types.signatures.SignableMessage`, :class:`~ape.api.transactions.TransactionAPI`]):  # noqa: E501
               The message or transaction to verify.
             signature (Optional[:class:`~ape.types.signatures.MessageSignature`]):
-              The signature to check.
+              The signature to check. Defaults to ``None`` and is not needed when the first
+              argument is a transaction class.
+            recover_using_eip191 (bool):
+              Perform recovery using EIP-191 signed message check. If set False, then will attempt
+              recovery as raw hash. `data`` must be a 32 byte hash if this is set False.
+              Defaults to ``True``.
 
         Returns:
             bool: ``True`` if the data was signed by this account. ``False`` otherwise.
         """
+        if isinstance(data, str):
+            data = encode_defunct(text=data)
+        elif isinstance(data, int):
+            data = encode_defunct(hexstr=to_hex(data))
+        elif isinstance(data, bytes) and (len(data) != 32 or recover_using_eip191):
+            data = encode_defunct(data)
+        elif isinstance(data, EIP712Message):
+            data = data.signable_message
         if isinstance(data, (SignableMessage, EIP712SignableMessage)):
             if signature:
                 return self.address == Account.recover_message(data, vrs=signature)
@@ -284,6 +382,9 @@ class AccountAPI(BaseInterfaceModel, BaseAddress):
 
         elif isinstance(data, TransactionAPI):
             return self.address == Account.recover_transaction(data.serialize_transaction())
+
+        elif isinstance(data, bytes) and len(data) == 32 and not recover_using_eip191:
+            return self.address == Account._recover_hash(data, vrs=signature)
 
         else:
             raise AccountsError(f"Unsupported message type: {type(data)}.")
@@ -304,7 +405,7 @@ class AccountAPI(BaseInterfaceModel, BaseAddress):
             :class:`~ape.api.transactions.TransactionAPI`
         """
 
-        # NOTE: Allow overriding nonce, assume user understand what this does
+        # NOTE: Allow overriding nonce, assume user understands what this does
         if txn.nonce is None:
             txn.nonce = self.nonce
         elif txn.nonce < self.nonce:
@@ -312,14 +413,41 @@ class AccountAPI(BaseInterfaceModel, BaseAddress):
 
         txn = self.provider.prepare_transaction(txn)
 
-        if txn.total_transfer_value > self.balance:
+        if (
+            txn.sender not in self.account_manager.test_accounts._impersonated_accounts
+            and txn.total_transfer_value > self.balance
+        ):
             raise AccountsError(
-                "Transfer value meets or exceeds account balance.\n"
-                "Are you using the correct provider/account combination?\n"
+                f"Transfer value meets or exceeds account balance "
+                f"for account '{self.address}' on chain '{self.provider.chain_id}' "
+                f"using provider '{self.provider.name}'.\n"
+                "Are you using the correct account / chain / provider combination?\n"
                 f"(transfer_value={txn.total_transfer_value}, balance={self.balance})."
             )
 
         return txn
+
+    def get_deployment_address(self, nonce: Optional[int] = None) -> AddressType:
+        """
+        Get a contract address before it is deployed. This is useful
+        when you need to pass the contract address to another contract
+        before deploying it.
+
+        Args:
+            nonce (int | None): Optionally provide a nonce. Defaults
+              the account's current nonce.
+
+        Returns:
+            AddressType: The contract address.
+        """
+        # Use the connected network, if available. Else, default to Ethereum.
+        ecosystem = (
+            self.network_manager.active_provider.network.ecosystem
+            if self.network_manager.active_provider
+            else self.network_manager.ethereum
+        )
+        nonce = self.nonce if nonce is None else nonce
+        return ecosystem.get_deployment_address(self.address, nonce)
 
 
 class AccountContainerAPI(BaseInterfaceModel):
@@ -328,14 +456,24 @@ class AccountContainerAPI(BaseInterfaceModel):
     instances.
     """
 
-    data_folder: Path
-    account_type: Type[AccountAPI]
+    name: str
+    """
+    The name of the account container.
+    For example, the ``ape-ledger`` plugin
+    uses ``"ledger"`` as its name.
+    """
+
+    account_type: type[AccountAPI]
+    """
+    The type of account in this container.
+    See :class:`~ape.api.accounts.AccountAPI`.
+    """
 
     @property
     @abstractmethod
     def aliases(self) -> Iterator[str]:
         """
-        Iterate over all available aliases.
+        All available aliases.
 
         Returns:
             Iterator[str]
@@ -345,11 +483,21 @@ class AccountContainerAPI(BaseInterfaceModel):
     @abstractmethod
     def accounts(self) -> Iterator[AccountAPI]:
         """
-        Iterate over all accounts.
+        All accounts.
 
         Returns:
             Iterator[:class:`~ape.api.accounts.AccountAPI`]
         """
+
+    @cached_property
+    def data_folder(self) -> Path:
+        """
+        The path to the account data files.
+        Defaults to ``$HOME/.ape/<plugin_name>`` unless overridden.
+        """
+        path = self.config_manager.DATA_FOLDER / self.name
+        path.mkdir(parents=True, exist_ok=True)
+        return path
 
     @abstractmethod
     def __len__(self) -> int:
@@ -362,11 +510,11 @@ class AccountContainerAPI(BaseInterfaceModel):
         Get an account by address.
 
         Args:
-            address (``AddressType``): The address to get. The type is an alias to
+            address (:class:`~ape.types.address.AddressType`): The address to get. The type is an alias to
               `ChecksumAddress <https://eth-typing.readthedocs.io/en/latest/types.html#checksumaddress>`__.  # noqa: E501
 
         Raises:
-            IndexError: When there is no local account with the given address.
+            KeyError: When there is no local account with the given address.
 
         Returns:
             :class:`~ape.api.accounts.AccountAPI`
@@ -375,7 +523,7 @@ class AccountContainerAPI(BaseInterfaceModel):
             if account.address == address:
                 return account
 
-        raise IndexError(f"No local account {address}.")
+        raise KeyError(f"No local account {address}.")
 
     def append(self, account: AccountAPI):
         """
@@ -424,7 +572,7 @@ class AccountContainerAPI(BaseInterfaceModel):
             NotImplementError: When not overridden within a plugin.
 
         Args:
-            address (``AddressType``): The address of the account to delete.
+            address (:class:`~ape.types.address.AddressType`): The address of the account to delete.
         """
         raise NotImplementedError("Must define this method to use `container.remove(acct)`.")
 
@@ -436,7 +584,7 @@ class AccountContainerAPI(BaseInterfaceModel):
             IndexError: When the given account address is not in this container.
 
         Args:
-            address (``AddressType``): An account address.
+            address (:class:`~ape.types.address.AddressType`): An account address.
 
         Returns:
             bool: ``True`` if ``ape`` manages the account with the given address.
@@ -445,15 +593,18 @@ class AccountContainerAPI(BaseInterfaceModel):
             self.__getitem__(address)
             return True
 
-        except (IndexError, AttributeError):
+        except (IndexError, KeyError, AttributeError):
             return False
 
     def _verify_account_type(self, account):
         if not isinstance(account, self.account_type):
+            container_type_name = getattr(type(account), "__name__", "<CustomContainerType>")
+            account_type_name = getattr(self.account_type, "__name__", "<UnknownAccount>")
             message = (
-                f"Container '{type(account).__name__}' is an incorrect "
-                f"type for container '{type(self.account_type).__name__}'."
+                f"Container '{container_type_name}' is an incorrect "
+                f"type for container '{account_type_name}'."
             )
+
             raise AccountsError(message)
 
     def _verify_unused_alias(self, account):
@@ -465,13 +616,40 @@ class TestAccountContainerAPI(AccountContainerAPI):
     """
     Test account containers for ``ape test`` (such containers that generate accounts using
     :class:`~ape.utils.GeneratedDevAccounts`) should implement this API instead of
-    ``AccountContainerAPI`` directly. This is how they show up in the ``accounts`` test fixture.
+    ``AccountContainerAPI`` directly. Then, they show up in the ``accounts`` test fixture.
     """
 
-    @abstractmethod
-    def generate_account(self) -> "TestAccountAPI":
+    @cached_property
+    def data_folder(self) -> Path:
         """
-        Generate a new test account
+        **NOTE**: Test account containers do not touch
+        persistent data. By default and unless overridden,
+        this property returns the path to ``/dev/null`` and
+        it is not used for anything.
+        """
+        return Path("/dev/null" if os.name == "posix" else "NUL")
+
+    @raises_not_implemented
+    def get_test_account(self, index: int) -> "TestAccountAPI":  # type: ignore[empty-body]
+        """
+        Get the test account at the given index.
+
+        Args:
+            index (int): The index of the test account.
+
+        Returns:
+            :class:`~ape.api.accounts.TestAccountAPI`
+        """
+
+    @abstractmethod
+    def generate_account(self, index: Optional[int] = None) -> "TestAccountAPI":
+        """
+        Generate a new test account.
+        """
+
+    def reset(self):
+        """
+        Reset the account container to an original state.
         """
 
 
@@ -479,7 +657,7 @@ class TestAccountAPI(AccountAPI):
     """
     Test accounts for ``ape test`` (such accounts that use
     :class:`~ape.utils.GeneratedDevAccounts`) should implement this API
-    instead of ``AccountAPI`` directly. This is how they show up in the ``accounts`` test fixture.
+    instead of ``AccountAPI`` directly. Then, they show up in the ``accounts`` test fixture.
     """
 
 
@@ -489,15 +667,18 @@ class ImpersonatedAccount(AccountAPI):
     """
 
     raw_address: AddressType
+    """
+    The field-address of the account.
+    """
 
     @property
     def address(self) -> AddressType:
         return self.raw_address
 
-    def sign_message(self, msg: SignableMessage) -> Optional[MessageSignature]:
+    def sign_message(self, msg: Any, **signer_options) -> Optional[MessageSignature]:
         raise NotImplementedError("This account cannot sign messages")
 
-    def sign_transaction(self, txn: TransactionAPI, **kwargs) -> Optional[TransactionAPI]:
+    def sign_transaction(self, txn: TransactionAPI, **signer_options) -> Optional[TransactionAPI]:
         # Returns input transaction unsigned (since it doesn't have access to the key)
         return txn
 

@@ -1,26 +1,36 @@
 import asyncio
+import functools
+import inspect
 import json
 import sys
+
+if sys.version_info.minor >= 11:
+    # 3.11 or greater
+    # NOTE: type-ignore is for when running mypy on python versions < 3.11
+    import tomllib  # type: ignore[import-not-found]
+else:
+    import toml as tomllib  # type: ignore[no-redef]
+
 from asyncio import gather
-from datetime import datetime
+from collections.abc import Coroutine, Mapping
+from datetime import datetime, timezone
 from functools import cached_property, lru_cache, singledispatchmethod, wraps
+from importlib.metadata import PackageNotFoundError, distributions
+from importlib.metadata import version as version_metadata
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Coroutine, Dict, List, Mapping, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, TypeVar, cast
 
-import requests
 import yaml
+from eth_pydantic_types import HexBytes
 from eth_utils import is_0x_prefixed
-from ethpm_types import HexBytes
-from importlib_metadata import PackageNotFoundError, distributions, packages_distributions
-from importlib_metadata import version as version_metadata
-from tqdm.auto import tqdm  # type: ignore
+from packaging.specifiers import SpecifierSet
 
-from ape.exceptions import APINotImplementedError, ProviderNotConnectedError
+from ape.exceptions import APINotImplementedError
 from ape.logging import logger
 from ape.utils.os import expand_environment_variables
 
 if TYPE_CHECKING:
-    from ape.types import AddressType
+    from ape.types.address import AddressType
 
 
 EMPTY_BYTES32 = HexBytes("0x0000000000000000000000000000000000000000000000000000000000000000")
@@ -28,25 +38,39 @@ ZERO_ADDRESS: "AddressType" = cast("AddressType", "0x000000000000000000000000000
 DEFAULT_TRANSACTION_ACCEPTANCE_TIMEOUT = 120
 DEFAULT_LOCAL_TRANSACTION_ACCEPTANCE_TIMEOUT = 20
 DEFAULT_LIVE_NETWORK_BASE_FEE_MULTIPLIER = 1.4
+DEFAULT_TRANSACTION_TYPE = 0
 DEFAULT_MAX_RETRIES_TX = 20
+LOCAL_NETWORK_NAME = "local"
+SOURCE_EXCLUDE_PATTERNS = (
+    ".build",
+    ".cache",
+    ".DS_Store",
+    ".git",
+    ".gitkeep",
+    "*.adoc",
+    "*.css",
+    "*.html",
+    "*.md",
+    "*.pdf",
+    "*.py*",
+    "*.rst",
+    "*.txt",
+    "*package.json",
+    "*package-lock.json",
+    "*tsconfig.json",
+    "ape-config.yaml",
+    "py.typed",
+)
 
-_python_version = (
+
+_python_version: str = (
     f"{sys.version_info.major}.{sys.version_info.minor}"
     f".{sys.version_info.micro} {sys.version_info.releaselevel}"
 )
 
 
 @lru_cache(maxsize=None)
-def get_distributions():
-    """
-    Get a mapping of top-level packages to their distributions.
-    """
-
-    return packages_distributions()
-
-
-@lru_cache(maxsize=None)
-def _get_distributions(pkg_name: str) -> List:
+def _get_distributions(pkg_name: Optional[str] = None) -> list:
     """
     Get a mapping of top-level packages to their distributions.
     """
@@ -56,10 +80,72 @@ def _get_distributions(pkg_name: str) -> List:
     for dist in all_distros:
         package_names = (dist.read_text("top_level.txt") or "").split()
         for name in package_names:
-            if name == pkg_name:
+            if pkg_name is None or name == pkg_name:
                 distros.append(dist)
 
     return distros
+
+
+def pragma_str_to_specifier_set(pragma_str: str) -> Optional[SpecifierSet]:
+    """
+    Convert the given pragma str to a ``packaging.version.SpecifierSet``
+    if possible.
+
+    Args:
+        pragma_str (str): The str to convert.
+
+    Returns:
+        ``Optional[packaging.version.SpecifierSet]``
+    """
+
+    pragma_parts = iter([x.strip(" ,") for x in pragma_str.split(" ")])
+
+    def _to_spec(item: str) -> str:
+        item = item.replace("^", "~=")
+        if item and item[0].isnumeric():
+            return f"=={item}"
+        elif item and len(item) >= 2 and item[0] == "=" and item[1] != "=":
+            return f"={item}"
+
+        return item
+
+    pragma_parts_fixed = []
+    builder = ""
+    for sub_part in pragma_parts:
+        parts_to_handle: list[str] = []
+        if "," in sub_part:
+            sub_sub_parts = [x.strip() for x in sub_part.split(",")]
+            if len(sub_sub_parts) > 2:
+                # Very rare case.
+                raise ValueError(f"Cannot handle pragma '{pragma_str}'.")
+
+            if next_part := next(pragma_parts, None):
+                parts_to_handle.extend((sub_sub_parts[0], f"{sub_sub_parts[-1]}{next_part}"))
+            else:
+                # Very rare case.
+                raise ValueError(f"Cannot handle pragma '{pragma_str}'.")
+        else:
+            parts_to_handle.append(sub_part)
+
+        for part in parts_to_handle:
+            if not any(c.isnumeric() for c in part):
+                # Handle pragma with spaces between constraint and values
+                # like `>= 0.6.0`.
+                builder += part
+                continue
+            elif builder:
+                spec = _to_spec(f"{builder}{part}")
+                builder = ""
+            else:
+                spec = _to_spec(part)
+
+            pragma_parts_fixed.append(spec)
+
+    try:
+        return SpecifierSet(",".join(pragma_parts_fixed))
+    except ValueError as err:
+        logger.error(str(err))
+        return None
 
 
 def get_package_version(obj: Any) -> str:
@@ -77,30 +163,28 @@ def get_package_version(obj: Any) -> str:
         return obj.__version__
 
     # NOTE: In case where don't pass a module name
-    if not isinstance(obj, str):
+    if not isinstance(obj, str) and hasattr(obj, "__name__"):
         obj = obj.__name__
+
+    elif not isinstance(obj, str):
+        try:
+            str_value = f"{obj}"
+        except Exception:
+            str_value = "<obj>"
+
+        logger.warning(f"Type issue: Unknown if properly handled {str_value}")
+
+        # Treat as no version found.
+        return ""
 
     # Reduce module string to base package
     # NOTE: Assumed that string input is module name e.g. `__name__`
-    pkg_name = obj.split(".")[0]
+    pkg_name = obj.partition(".")[0]
 
     # NOTE: In case the distribution and package name differ
     dists = _get_distributions(pkg_name)
     if dists:
-        num_packages = len(dists)
         pkg_name = dists[0].metadata["Name"]
-
-        if num_packages != 1:
-            # Warn that there are more than 1 package with this name,
-            # which can lead to odd behaviors.
-            found_paths = [str(d._path) for d in dists if hasattr(d, "_path")]
-            found_paths_str = ",\n\t".join(found_paths)
-            message = f"Found {num_packages} packages named '{pkg_name}'."
-            if found_paths:
-                message = f"{message}\nInstallation paths:\n\t{found_paths_str}"
-
-            logger.warning(message)
-
     try:
         return str(version_metadata(pkg_name))
 
@@ -109,11 +193,10 @@ def get_package_version(obj: Any) -> str:
         return ""
 
 
-__version__ = get_package_version(__name__)
-USER_AGENT = f"Ape/{__version__} (Python/{_python_version})"
+__version__: str = get_package_version(__name__)
 
 
-def load_config(path: Path, expand_envars=True, must_exist=False) -> Dict:
+def load_config(path: Path, expand_envars=True, must_exist=False) -> dict:
     """
     Load a configuration file into memory.
     A file at the given path must exist or else it will throw ``OSError``.
@@ -127,14 +210,23 @@ def load_config(path: Path, expand_envars=True, must_exist=False) -> Dict:
                                 and is able to be load.
 
     Returns:
-        Dict (dict): Configured settings parsed from a config file.
+        dict: Configured settings parsed from a config file.
     """
     if path.is_file():
         contents = path.read_text()
         if expand_envars:
             contents = expand_environment_variables(contents)
 
-        if path.suffix in (".json",):
+        if path.name == "pyproject.toml":
+            pyproject_toml = tomllib.loads(contents)
+            config = pyproject_toml.get("tool", {}).get("ape", {})
+
+            # Utilize [project] for some settings.
+            if project_settings := pyproject_toml.get("project"):
+                if "name" not in config and "name" in project_settings:
+                    config["name"] = project_settings["name"]
+
+        elif path.suffix in (".json",):
             config = json.loads(contents)
         elif path.suffix in (".yml", ".yaml"):
             config = yaml.safe_load(contents)
@@ -173,7 +265,7 @@ def gas_estimation_error_message(tx_error: Exception) -> str:
     )
 
 
-def extract_nested_value(root: Mapping, *args: str) -> Optional[Dict]:
+def extract_nested_value(root: Mapping, *args: str) -> Optional[dict]:
     """
     Dig through a nested ``dict`` using the given keys and return the
     last-found object.
@@ -201,21 +293,21 @@ def extract_nested_value(root: Mapping, *args: str) -> Optional[Dict]:
 
 
 def add_padding_to_strings(
-    str_list: List[str],
+    str_list: list[str],
     extra_spaces: int = 0,
     space_character: str = " ",
-) -> List[str]:
+) -> list[str]:
     """
     Append spacing to each string in a list of strings such that
     they all have the same length.
 
     Args:
-        str_list (List[str]): The list of strings that need padding.
+        str_list (list[str]): The list of strings that need padding.
         extra_spaces (int): Optionally append extra spacing. Defaults to ``0``.
         space_character (str): The character to use in the padding. Defaults to ``" "``.
 
     Returns:
-        List[str]: A list of equal-length strings with padded spaces.
+        list[str]: A list of equal-length strings with padded spaces.
     """
 
     if not str_list:
@@ -231,33 +323,6 @@ def add_padding_to_strings(
     return spaced_items
 
 
-def stream_response(download_url: str, progress_bar_description: str = "Downloading") -> bytes:
-    """
-    Download HTTP content by streaming and returning the bytes.
-    Progress bar will be displayed in the CLI.
-
-    Args:
-        download_url (str): String to get files to download.
-        progress_bar_description (str): Downloading word.
-
-    Returns:
-        bytes: Content in bytes to show the progress.
-    """
-    response = requests.get(download_url, stream=True)
-    response.raise_for_status()
-
-    total_size = int(response.headers.get("content-length", 0))
-    progress_bar = tqdm(total=total_size, unit="iB", unit_scale=True, leave=False)
-    progress_bar.set_description(progress_bar_description)
-    content = b""
-    for data in response.iter_content(1024, decode_unicode=True):
-        progress_bar.update(len(data))
-        content += data
-
-    progress_bar.close()
-    return content
-
-
 def raises_not_implemented(fn):
     """
     Decorator for raising helpful not implemented error.
@@ -266,6 +331,8 @@ def raises_not_implemented(fn):
     def inner(*args, **kwargs):
         raise _create_raises_not_implemented_error(fn)
 
+    # This is necessary for doc strings to show up with sphinx
+    inner.__doc__ = fn.__doc__
     return inner
 
 
@@ -275,7 +342,11 @@ def _create_raises_not_implemented_error(fn):
     )
 
 
-def to_int(value) -> int:
+def to_int(value: Any) -> int:
+    """
+    Convert the given value, such as hex-strs or hex-bytes, to an integer.
+    """
+
     if isinstance(value, int):
         return value
     elif isinstance(value, str):
@@ -317,33 +388,6 @@ def run_until_complete(*item: Any) -> Any:
     return result
 
 
-def allow_disconnected(fn: Callable):
-    """
-    A decorator that instead of raising :class:`~ape.exceptions.ProviderNotConnectedError`
-    warns and returns ``None``.
-
-    Usage example::
-
-        from typing import Optional
-        from ape.types import SnapshotID
-        from ape.utils import return_none_when_disconnected
-
-        @allow_disconnected
-        def try_snapshot(self) -> Optional[SnapshotID]:
-            return self.chain.snapshot()
-
-    """
-
-    def inner(*args, **kwargs):
-        try:
-            return fn(*args, **kwargs)
-        except ProviderNotConnectedError:
-            logger.warning("Provider is not connected.")
-            return None
-
-    return inner
-
-
 def nonreentrant(key_fn):
     def inner(f):
         locks = set()
@@ -371,7 +415,7 @@ def get_current_timestamp_ms() -> int:
     Returns:
         int
     """
-    return round(datetime.utcnow().timestamp() * 1000)
+    return round(datetime.now(tz=timezone.utc).timestamp() * 1000)
 
 
 def is_evm_precompile(address: str) -> bool:
@@ -415,20 +459,91 @@ def is_zero_hex(address: str) -> bool:
         return False
 
 
+def _dict_overlay(mapping: dict[str, Any], overlay: dict[str, Any], depth: int = 0):
+    """Overlay given overlay structure on a dict"""
+    for key, value in overlay.items():
+        if isinstance(value, dict):
+            if key not in mapping:
+                mapping[key] = dict()
+            _dict_overlay(mapping[key], value, depth + 1)
+        else:
+            mapping[key] = value
+    return mapping
+
+
+def log_instead_of_fail(default: Optional[Any] = None):
+    """
+    A decorator for logging errors instead of raising.
+    This is useful for methods like __repr__ which shouldn't fail.
+    """
+
+    def wrapper(fn):
+        @functools.wraps(fn)
+        def wrapped(*args, **kwargs):
+            try:
+                if args and isinstance(args[0], type):
+                    return fn(*args, **kwargs)
+                else:
+                    return fn(*args, **kwargs)
+
+            except Exception as err:
+                logger.error(str(err))
+                if default:
+                    return default
+
+        return wrapped
+
+    return wrapper
+
+
+_MOD_T = TypeVar("_MOD_T")
+
+
+def as_our_module(cls_or_def: _MOD_T, doc_str: Optional[str] = None) -> _MOD_T:
+    """
+    Ape sometimes reclaims definitions from other packages, such as
+    class:`~ape.types.signatures.SignableMessage`). When doing so, the doc str
+    may be different than ours, and the module may still refer to
+    the original package. This method steals the given class as-if
+    it were ours. Logic borrowed from starknet-py.
+    https://github.com/software-mansion/starknet.py/blob/0.10.1-alpha/starknet_py/utils/docs.py#L10-L24
+
+    Args:
+        cls_or_def (_MOD_T): The class or definition to borrow.
+        doc_str (str): Optionally change the doc string.
+
+    Returns:
+        The borrowed-version of the class or definition.
+    """
+    if cls_or_def is None:
+        return cls_or_def
+
+    elif doc_str is not None:
+        cls_or_def.__doc__ = doc_str
+
+    frame = inspect.stack()[1]
+    if module := inspect.getmodule(frame[0]):
+        cls_or_def.__module__ = module.__name__
+
+    return cls_or_def
+
+
 __all__ = [
-    "allow_disconnected",
     "cached_property",
+    "_dict_overlay",
     "extract_nested_value",
     "gas_estimation_error_message",
     "get_current_timestamp_ms",
+    "pragma_str_to_specifier_set",
     "get_package_version",
     "is_evm_precompile",
     "is_zero_hex",
     "load_config",
+    "LOCAL_NETWORK_NAME",
+    "log_instead_of_fail",
     "nonreentrant",
     "raises_not_implemented",
     "run_until_complete",
     "singledispatchmethod",
-    "stream_response",
-    "USER_AGENT",
+    "to_int",
 ]

@@ -7,7 +7,6 @@
     :members:
     :show-inheritance:
     :special-members:
-    :exclude-members: __repr__, __weakref__, __metaclass__, __init__
 ```
 
 ## Address
@@ -33,7 +32,6 @@
     :members:
     :show-inheritance:
     :special-members:
-    :exclude-members: __repr__, __weakref__, __metaclass__, __init__
 ```
 
 ## Convert
@@ -42,6 +40,7 @@
 .. automodule:: ape.api.convert
     :members:
     :show-inheritance:
+    :special-members:
 ```
 
 ## Explorers
@@ -59,7 +58,6 @@
     :members:
     :show-inheritance:
     :special-members:
-    :exclude-members: __repr__, __weakref__, __metaclass__, __init__
 ```
 
 ## Projects
@@ -84,14 +82,12 @@
 .. autoclass:: ape.api.transactions.ReceiptAPI
     :members:
     :show-inheritance:
-    :exclude-members: __repr__, __weakref__, __metaclass__, __init__
 ```
 
 ```{eval-rst}
 .. autoclass:: ape.api.transactions.TransactionAPI
     :members:
     :show-inheritance:
-    :exclude-members: __repr__, __weakref__, __metaclass__, __init__
 ```
 
 ## Query
@@ -101,5 +97,4 @@
     :members:
     :show-inheritance:
     :special-members:
-    :exclude-members: __repr__, __weakref__, __metaclass__, __init__
 ```

@@ -2,11 +2,17 @@
 import logging
 import sys
 import traceback
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 from enum import IntEnum
 from pathlib import Path
-from typing import IO, Any, Dict, Optional, Union
+from typing import IO, TYPE_CHECKING, Any, Optional, Union
+from urllib.parse import urlparse, urlunparse
 
 import click
+
+if TYPE_CHECKING:
+    from rich.console import Console as RichConsole
 
 
 class LogLevel(IntEnum):
@@ -20,7 +26,8 @@ class LogLevel(IntEnum):
 logging.addLevelName(LogLevel.SUCCESS.value, LogLevel.SUCCESS.name)
 logging.SUCCESS = LogLevel.SUCCESS.value  # type: ignore
 DEFAULT_LOG_LEVEL = LogLevel.INFO.name
-DEFAULT_LOG_FORMAT = "%(levelname)s%(plugin)s: %(message)s"
+DEFAULT_LOG_FORMAT = "%(levelname_semicolon_padded)s %(plugin)s %(message)s"
+HIDDEN_MESSAGE = "[hidden]"
 
 
 def success(self, message, *args, **kws):
@@ -68,12 +75,16 @@ class ApeColorFormatter(logging.Formatter):
         super().__init__(fmt=fmt)
 
     def format(self, record):
+        record.levelname_semicolon_padded = f"{record.levelname}:".ljust(8)
         if _isatty(sys.stdout) and _isatty(sys.stderr):
             # Only color log messages when sys.stdout and sys.stderr are sent to the terminal.
             level = LogLevel(record.levelno)
-            default_dict: Dict[str, Any] = {}
-            styles: Dict[str, Any] = CLICK_STYLE_KWARGS.get(level, default_dict)
+            default_dict: dict[str, Any] = {}
+            styles: dict[str, Any] = CLICK_STYLE_KWARGS.get(level, default_dict)
             record.levelname = click.style(record.levelname, **styles)
+            record.levelname_semicolon_padded = click.style(
+                record.levelname_semicolon_padded, **styles
+            )
 
         path = Path(record.pathname)
         record.plugin = ""
@@ -86,13 +97,19 @@ class ApeColorFormatter(logging.Formatter):
 
 
 class ClickHandler(logging.Handler):
-    def __init__(self, echo_kwargs):
+    def __init__(
+        self, echo_kwargs: dict, handlers: Optional[Sequence[Callable[[str], str]]] = None
+    ):
         super().__init__()
         self.echo_kwargs = echo_kwargs
+        self.handlers = handlers or []
 
     def emit(self, record):
         try:
             msg = self.format(record)
+            for handler in self.handlers:
+                msg = handler(msg)
+
             level = record.levelname.lower()
             if self.echo_kwargs.get(level):
                 click.echo(msg, **self.echo_kwargs[level])
@@ -104,7 +121,7 @@ class ClickHandler(logging.Handler):
 
 class ApeLogger:
     _mentioned_verbosity_option = False
-    _extra_loggers: Dict[str, logging.Logger] = {}
+    _extra_loggers: dict[str, logging.Logger] = {}
 
     def __init__(
         self,
@@ -117,6 +134,7 @@ class ApeLogger:
         self.info = _logger.info
         self.debug = _logger.debug
         self._logger = _logger
+        self._did_parse_sys_argv = False
         self._load_from_sys_argv()
         self.fmt = fmt
 
@@ -131,45 +149,78 @@ class ApeLogger:
         fmt = fmt or DEFAULT_LOG_FORMAT
         _format_logger(self._logger, fmt)
 
-    def _load_from_sys_argv(self, default: Optional[Union[str, int]] = None):
+    def _load_from_sys_argv(self, default: Optional[Union[str, int, LogLevel]] = None):
         """
         Load from sys.argv to beat race condition with `click`.
         """
+        if self._did_parse_sys_argv:
+            # Already parsed.
+            return
 
         log_level = _get_level(level=default)
         level_names = [lvl.name for lvl in LogLevel]
-        for arg_i in range(len(sys.argv) - 1):
+
+        #  Minus 2 because if `-v` is the last arg, it is not our verbosity `-v`.
+        num_args = len(sys.argv) - 2
+
+        for arg_i in range(1, 1 + num_args):
             if sys.argv[arg_i] == "-v" or sys.argv[arg_i] == "--verbosity":
-                level = _get_level(sys.argv[arg_i + 1].upper())
+                try:
+                    level = _get_level(sys.argv[arg_i + 1].upper())
+                except Exception:
+                    # Let it fail in a better spot, or is not our level.
+                    continue
 
                 if level in level_names:
+                    self._sys_argv = level
                     log_level = level
                     break
                 else:
-                    names_str = f"{', '.join(level_names[:-1])}, or {level_names[-1]}"
-                    self._logger.error(f"Must be one of '{names_str}', not '{level}'.")
-                    sys.exit(2)
+                    # Not our level.
+                    continue
 
         self.set_level(log_level)
+        self._did_parse_sys_argv = True
 
     @property
     def level(self) -> int:
         return self._logger.level
 
-    def set_level(self, level: Union[str, int]):
+    def set_level(self, level: Union[str, int, LogLevel]):
         """
         Change the global ape logger log-level.
 
         Args:
             level (str): The name of the level or the value of the log-level.
         """
-
         if level == self._logger.level:
             return
+        elif isinstance(level, LogLevel):
+            level = level.value
+        elif isinstance(level, str) and level.lower().startswith("loglevel."):
+            # Seen in some environments.
+            level = level.split(".")[-1].strip()
 
         self._logger.setLevel(level)
         for _logger in self._extra_loggers.values():
             _logger.setLevel(level)
+
+    @contextmanager
+    def at_level(self, level: Union[str, int, LogLevel]) -> Iterator:
+        """
+        Change the log-level in a context.
+
+        Args:
+            level (Union[str, int, LogLevel]): The level to use.
+
+        Returns:
+            Iterator
+        """
+
+        initial_level = self.level
+        self.set_level(level)
+        yield
+        self.set_level(initial_level)
 
     def log_error(self, err: Exception):
         """
@@ -200,7 +251,8 @@ class ApeLogger:
         self.log_debug_stack_trace()
 
     def _create_message_from_error(self, err: Exception, message: str):
-        err_output = f"{type(err).__name__}: {err}"
+        err_type_name = getattr(type(err), "__name__", "Exception")
+        err_output = f"{err_type_name}: {err}"
         message = f"{message}\n\t{err_output}"
         if not self._mentioned_verbosity_option:
             message += "\n\t(Use `--verbosity DEBUG` to see full stack-trace)"
@@ -212,15 +264,19 @@ class ApeLogger:
         stack_trace = traceback.format_exc()
         self._logger.debug(stack_trace)
 
-    def create_logger(self, new_name: str) -> logging.Logger:
-        _logger = get_logger(new_name, self.fmt)
+    def create_logger(
+        self, new_name: str, handlers: Optional[Sequence[Callable[[str], str]]] = None
+    ) -> logging.Logger:
+        _logger = get_logger(new_name, fmt=self.fmt, handlers=handlers)
         _logger.setLevel(self.level)
         self._extra_loggers[new_name] = _logger
         return _logger
 
 
-def _format_logger(_logger: logging.Logger, fmt: str):
-    handler = ClickHandler(echo_kwargs=CLICK_ECHO_KWARGS)
+def _format_logger(
+    _logger: logging.Logger, fmt: str, handlers: Optional[Sequence[Callable[[str], str]]] = None
+):
+    handler = ClickHandler(echo_kwargs=CLICK_ECHO_KWARGS, handlers=handlers)
     formatter = ApeColorFormatter(fmt=fmt)
     handler.setFormatter(formatter)
 
@@ -232,7 +288,11 @@ def _format_logger(_logger: logging.Logger, fmt: str):
     _logger.addHandler(handler)
 
 
-def get_logger(name: str, fmt: Optional[str] = None) -> logging.Logger:
+def get_logger(
+    name: str,
+    fmt: Optional[str] = None,
+    handlers: Optional[Sequence[Callable[[str], str]]] = None,
+) -> logging.Logger:
     """
     Get a logger with the given ``name`` and configure it for usage with Ape.
 
@@ -240,28 +300,75 @@ def get_logger(name: str, fmt: Optional[str] = None) -> logging.Logger:
         name (str): The name of the logger.
         fmt (Optional[str]): The format of the logger. Defaults to the Ape
           logger's default format: ``"%(levelname)s%(plugin)s: %(message)s"``.
+        handlers (Optional[Sequence[Callable[[str], str]]]): Additional log message handlers.
 
     Returns:
         ``logging.Logger``
     """
     _logger = logging.getLogger(name)
-    _format_logger(_logger, fmt=fmt or DEFAULT_LOG_FORMAT)
+    _format_logger(_logger, fmt=fmt or DEFAULT_LOG_FORMAT, handlers=handlers)
     return _logger
 
 
-def _get_level(level: Optional[Union[str, int]] = None) -> str:
+def _get_level(level: Optional[Union[str, int, LogLevel]] = None) -> str:
     if level is None:
         return DEFAULT_LOG_LEVEL
-    elif isinstance(level, int) or level.isnumeric():
+    elif isinstance(level, LogLevel):
+        return level.name
+    elif isinstance(level, int) or (isinstance(level, str) and level.isnumeric()):
         return LogLevel(int(level)).name
+    elif isinstance(level, str) and level.lower().startswith("loglevel."):
+        # Handle 'LogLevel.' prefix.
+        return level.split(".")[-1].strip()
 
     return level
 
 
+def sanitize_url(url: str) -> str:
+    """Removes sensitive information from given URL"""
+
+    parsed = urlparse(url)
+    new_netloc = parsed.hostname or ""
+    if parsed.port:
+        new_netloc += f":{parsed.port}"
+
+    new_url = urlunparse(parsed._replace(netloc=new_netloc, path=""))
+    return f"{new_url}/{HIDDEN_MESSAGE}" if parsed.path else new_url
+
+
 logger = ApeLogger.create()
 
-# TODO: Can remove this type alias after 0.7
-CliLogger = ApeLogger
+
+class _RichConsoleFactory:
+    rich_console_map: dict[str, "RichConsole"] = {}
+
+    def get_console(self, file: Optional[IO[str]] = None, **kwargs) -> "RichConsole":
+        # Configure custom file console
+        file_id = str(file)
+        if file_id not in self.rich_console_map:
+            # perf: delay importing from rich, as it is slow.
+            from rich.console import Console as RichConsole
+
+            self.rich_console_map[file_id] = RichConsole(file=file, width=100, **kwargs)
+
+        return self.rich_console_map[file_id]
 
 
-__all__ = ["DEFAULT_LOG_LEVEL", "logger", "LogLevel", "ApeLogger"]
+_factory = _RichConsoleFactory()
+
+
+def get_rich_console(file: Optional[IO[str]] = None, **kwargs) -> "RichConsole":
+    """
+    Get an Ape-configured rich console.
+
+    Args:
+        file (Optional[IO[str]]): The file to output to. Will default
+          to using stdout.
+
+    Returns:
+        ``rich.Console``.
+    """
+    return _factory.get_console(file, **kwargs)
+
+
+__all__ = ["DEFAULT_LOG_LEVEL", "logger", "LogLevel", "ApeLogger", "get_rich_console"]

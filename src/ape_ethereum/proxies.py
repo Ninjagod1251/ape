@@ -1,9 +1,9 @@
 from enum import IntEnum, auto
-from typing import cast
+from typing import Optional, cast
 
+from eth_pydantic_types.hex import HexStr
 from ethpm_types import ContractType, MethodABI
 from ethpm_types.abi import ABIType
-from ethpm_types.utils import Hex
 from lazyasd import LazyObject  # type: ignore
 
 from ape.api.networks import ProxyInfoAPI
@@ -69,6 +69,15 @@ class ProxyType(IntEnum):
 class ProxyInfo(ProxyInfoAPI):
     type: ProxyType
 
+    def __init__(self, **kwargs):
+        abi = kwargs.pop("abi", None)
+        super().__init__(**kwargs)
+        self._abi = abi
+
+    @property
+    def abi(self) -> Optional[MethodABI]:
+        return self._abi
+
 
 MASTER_COPY_ABI = MethodABI(
     type="function",
@@ -92,7 +101,7 @@ IMPLEMENTATION_ABI = MethodABI(
 
 def _make_minimal_proxy(address: str = MINIMAL_PROXY_TARGET_PLACEHOLDER) -> ContractContainer:
     address = address.replace("0x", "")
-    code = cast(Hex, MINIMAL_PROXY_BYTES.replace(MINIMAL_PROXY_TARGET_PLACEHOLDER, address))
+    code = cast(HexStr, MINIMAL_PROXY_BYTES.replace(MINIMAL_PROXY_TARGET_PLACEHOLDER, address))
     bytecode = {"bytecode": code}
     contract_type = ContractType(abi=[], deploymentBytecode=bytecode)
     return ContractContainer(contract_type=contract_type)

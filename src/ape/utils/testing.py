@@ -1,15 +1,12 @@
 from collections import namedtuple
-from typing import List
 
-from eth_account import Account
-from eth_account.hdaccount import HDPath
-from eth_account.hdaccount.mnemonic import Mnemonic
-from ethpm_types import HexBytes
+from eth_utils import to_hex
 
 DEFAULT_NUMBER_OF_TEST_ACCOUNTS = 10
 DEFAULT_TEST_MNEMONIC = "test test test test test test test test test test test junk"
-DEFAULT_HD_PATH = "m/44'/60'/0'/{}"
+DEFAULT_TEST_HD_PATH = "m/44'/60'/0'/0"
 DEFAULT_TEST_CHAIN_ID = 1337
+DEFAULT_TEST_ACCOUNT_BALANCE = int(10e21)  # 10,000 Ether (in Wei)
 GeneratedDevAccount = namedtuple("GeneratedDevAccount", ("address", "private_key"))
 """
 An account key-pair generated from the test mnemonic. Set the test mnemonic
@@ -28,9 +25,9 @@ Config example::
 def generate_dev_accounts(
     mnemonic: str = DEFAULT_TEST_MNEMONIC,
     number_of_accounts: int = DEFAULT_NUMBER_OF_TEST_ACCOUNTS,
-    hd_path_format: str = DEFAULT_HD_PATH,
+    hd_path: str = DEFAULT_TEST_HD_PATH,
     start_index: int = 0,
-) -> List[GeneratedDevAccount]:
+) -> list[GeneratedDevAccount]:
     """
     Create accounts from the given test mnemonic.
     Use these accounts (or the mnemonic) in chain-genesis
@@ -39,19 +36,35 @@ def generate_dev_accounts(
     Args:
         mnemonic (str): mnemonic phrase or seed words.
         number_of_accounts (int): Number of accounts. Defaults to ``10``.
-        hd_path_format (str): Hard Wallets/HD Keys derivation path format.
-          Defaults to ``"m/44'/60'/0'/{}"``.
+        hd_path(str): Hard Wallets/HD Keys derivation path format.
+          Defaults to ``"m/44'/60'/0'/0"``.
+        start_index (int): The index to start from in the path. Defaults
+          to 0.
 
     Returns:
-        List[:class:`~ape.utils.GeneratedDevAccount`]: List of development accounts.
+        list[:class:`~ape.utils.GeneratedDevAccount`]: List of development accounts.
     """
+    # perf: lazy imports so module loads faster.
+    from eth_account.hdaccount.mnemonic import Mnemonic
+
     seed = Mnemonic.to_seed(mnemonic)
-    accounts = []
+    hd_path_format = (
+        hd_path if "{}" in hd_path or "{0}" in hd_path else f"{hd_path.rstrip('/')}/{{}}"
+    )
+    return [
+        _generate_dev_account(hd_path_format, i, seed)
+        for i in range(start_index, start_index + number_of_accounts)
+    ]
 
-    for i in range(start_index, start_index + number_of_accounts):
-        hd_path = HDPath(hd_path_format.format(i))
-        private_key = HexBytes(hd_path.derive(seed)).hex()
-        address = Account.from_key(private_key).address
-        accounts.append(GeneratedDevAccount(address, private_key))
 
-    return accounts
+def _generate_dev_account(hd_path, index: int, seed: bytes) -> GeneratedDevAccount:
+    # perf: lazy imports so module loads faster.
+    from eth_account.account import Account
+    from eth_account.hdaccount import HDPath
+
+    return GeneratedDevAccount(
+        address=Account.from_key(
+            private_key := to_hex(HDPath(hd_path.format(index)).derive(seed))
+        ).address,
+        private_key=private_key,
+    )

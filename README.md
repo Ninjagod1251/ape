@@ -1,27 +1,33 @@
+[![Pypi.org][pypi-badge]][pypi-url]
+[![Apache licensed][licence-badge]][licence-url]
+[![Build Status][actions-badge]][actions-url]
+[![Discord chat][discord-badge]][discord-url]
+[![Twitter][twitter-badge]][twitter-url]
+
 # Overview
 
-**Ape Framework** is an easy-to-use Web3 development tool.
+[Ape Framework](https://apeworx.io/framework/) is an easy-to-use Web3 development tool.
 Users can compile, test, and interact with smart contracts all in one command line session.
-With our **modular plugin system**, Ape supports multiple contract languages and chains.
+With our [modular plugin system](#plugin-system), Ape supports multiple contract languages and chains.
 
 Ape is built by [ApeWorX LTD](https://www.apeworx.io/).
 
-Join our [ApeWorX Discord server](https://discord.gg/apeworx) to stay up to date on new releases, plugins and tutorials.
+Join our [ApeWorX Discord server][discord-url] to stay up to date on new releases, plugins, and tutorials.
 
-If you want to just get started, jump down to the [Playing with Ape](#playing-with-ape).
+If you want to get started now, see the [Quickstart](#quickstart) section.
 
 ## Documentation
 
 Read our [technical documentation](https://docs.apeworx.io/ape/stable/) to get a deeper understanding of our open source Framework.
 
-Read our [academic platform](https://academy.apeworx.io/) will help you master Ape Framework with tutorials and challenges.
+Read our [academic platform](https://academy.apeworx.io/) which will help you master Ape Framework with tutorials and challenges.
 
 ## Prerequisite
 
 In the latest release, Ape requires:
 
 - Linux or macOS
-- Python 3.8 up to 3.11
+- Python 3.9 up to 3.12
 - **Windows**: Install Windows Subsystem Linux [(WSL)](https://docs.microsoft.com/en-us/windows/wsl/install)
 
 Check your python version in a terminal with `python3 --version`.
@@ -30,7 +36,7 @@ Check your python version in a terminal with `python3 --version`.
 
 There are three ways to install ape: `pipx`, `pip`, or `Docker`.
 
-### Considerations for Installing:
+### Considerations for Installing
 
 - If using `pip`, we advise using the most up-to-date version of `pip` to increase the chance of a successful installation.
 
@@ -43,151 +49,100 @@ There are three ways to install ape: `pipx`, `pip`, or `Docker`.
 
 - We advise for **macOS** users to install virtual env via [homebrew](https://formulae.brew.sh/formula/virtualenv).
 
-### via `pipx` or `pip`
+### Installing with `pipx` or `pip`
 
 1. Install `pipx` via their [installation instructions](https://pypa.github.io/pipx/) or `pip` via their [installation instructions](https://pip.pypa.io/en/stable/cli/pip_install/).
 
 2. Install **`ape`** via `pipx install eth-ape` or `pip install eth-ape`.
 
-### via `docker`
+### Installing with `docker`
 
 Ape can also run in a docker container.
 
-Please visit our [Dockerhub](https://hub.docker.com/repository/docker/apeworx/ape) for more details on using Ape with Docker.
+You can pull our images from [ghcr](https://ghcr.io/apeworx/ape).
+This image is built using our `recommended-plugins` extra, so it is a great starting point for running ape in a containerized environment.
+
+We also have a `slim` docker image that is built without any installed plugins.
+This image is meant for production support and must be further configured if any plugins are in use.
+
+You can pull the image:
+
+```bash
+$ docker pull ghcr.io/apeworx/ape:latest  # installs with recommended-plugins
+```
+
+or pull the slim if you have specific needs that you'd like to build from:
+
+```bash
+$ docker pull ghcr.io/apeworx/ape:latest-slim  # installs ape with required packages
+```
+
+or build the image locally from source:
+
+```bash
+$ docker build -t ape:latest-slim -f Dockerfile.slim .
+$ docker build -t ape:latest .
+```
+
+An example of running a command from the container would be:
 
 ```bash
 docker run \
---volume $HOME/.ape:/home/harambe/.ape \
---volume $HOME/.vvm:/home/harambe/.vvm \
---volume $HOME/.solcx:/home/harambe/.solcx \
---volume $PWD:/home/harambe/project \
-apeworx/ape compile
+  --volume $HOME/.ape:/home/harambe/.ape \
+  --volume $HOME/.vvm:/home/harambe/.vvm \
+  --volume $HOME/.solcx:/home/harambe/.solcx \
+  --volume $PWD:/home/harambe/project \
+  apeworx/ape compile
 ```
 
-## Playing with Ape
+> **Note:**
+> The above command requires the full install which includes `recommended-plugins` installation extra.
 
-After you installed Ape, you can run `ape --version` to make sure it works and is the latest version.
+## Quickstart
 
-There are two ways to interact with Ape:
+After you have installed Ape, run `ape --version` to verify the installation was successful.
 
-- [CLI Reference](https://docs.apeworx.io/ape/latest/index.html)
+Interact with Ape using either the [CLI](https://docs.apeworx.io/ape/latest/index.html) or [Python code](https://docs.apeworx.io/ape/latest/index.html).
 
-- [Python Reference](https://docs.apeworx.io/ape/latest/index.html)
+See the following user-guides for more in-depth tutorials:
 
-Ape is both a CLI tool and a Python SDK.
+- [Accounts][accounts-guide]
+- [Networks][networks-guide]
+- [Projects][projects-guide]
+- [Compiling][compile-guide]
+- [Testing][testing-guide]
+- [Console][console-guide]
+- [Scripting][scripting-guide]
+- [Logging][logging-guide]
 
-The CLI tool contains all the Ape commands and the Python SDK contains the classes and types needed to compose scripts, console actions, and tests.
+## Plugin System
 
-## **Ape Modular Plugin System:**
+Ape's modular plugin system allows users to have an interoperable experience with Web3.
 
-Our [list of plugins](https://www.apeworx.io/#plugins) is the best way to have the most interoperable experience with Web3.
-
-**NOTE**: If a plugin does not originate from the [ApeWorX GitHub Organization](https://github.com/ApeWorX?q=ape&type=all), you will get a warning about installing 3rd-party plugins.
-
-Install 3rd party plugins at your own risk.
-
-Additionally, plugins that come bundled with **`ape`** in the core installation cannot be removed and are part of the **`ape`** core software.
-
-- Learn more about **installing** plugins from following this [installing user guide](https://docs.apeworx.io/ape/stable/userguides/installing_plugins.html).
+- Learn about **installing** plugins from following this [installing user guide](https://docs.apeworx.io/ape/stable/userguides/installing_plugins.html).
 
 - Learn more about **developing** your own plugins from this [developing user guide](https://docs.apeworx.io/ape/stable/userguides/developing_plugins.html).
 
-### Accounts
-
-In Ape, you will need accounts to make transactions.
-You can import or generate accounts using the core `accounts` plugin:
-
-```bash
-ape accounts import acc0   # Will prompt for a private key
-ape accounts generate acc1
+```{note}
+If a plugin does not originate from the [ApeWorX GitHub Organization](https://github.com/ApeWorX?q=ape&type=all), you will get a warning about installing 3rd-party plugins.
+Install 3rd party plugins at your own risk.
 ```
 
-List all your accounts with the `list` command.
-
-```bash
-ape accounts list
-```
-
-Learn more about accounts in Ape by following the [accounts guide](https://docs.apeworx.io/ape/stable/userguides/accounts.html).
-
-### Plugins
-
-Add any plugins you may need, such as `vyper`.
-
-```bash
-ape plugins list -a
-ape plugins install vyper
-ape plugins list -a
-```
-
-## Projects
-
-When using Ape, you generally will work with a project.
-
-Learn more about smart-contract **projects** from this [projects guide](https://docs.apeworx.io/ape/stable/userguides/projects.html).
-
-### Compiling
-
-You can compile contracts within the `contracts/` directory of your project.
-The `--size` option will display you the size of the contract.
-
-```bash
-ape compile --size
-```
-
-Learn more about compiling in Ape by following the [compile guide](https://docs.apeworx.io/ape/stable/userguides/compile.html).
-
-### Testing
-
-Use Ape to test your smart-contract projects.
-Provide the same arguments to `pytest` as you would to the `ape test` command.
-
-For example:
-
-```bash
-ape test -k test_only_one_thing
-```
-
-Visit the [testing guide](https://docs.apeworx.io/ape/stable/userguides/testing.html) to learn more about testing using Ape.
-
-### Console
-
-Ape provides an `IPython` interactive console with useful pre-defined locals to interact with your project.
-To interact with a deployed contract in a local environment, start by opening the console:
-
-```bash
-ape console --network ethereum:mainnet:infura
-```
-
-Visit [Ape Console](https://docs.apeworx.io/ape/stable/commands/console.html) to learn how to use Ape Console.
-
-### Scripts
-
-If you want to run specific files in a `scripts/` directory, you can do it using the `ape run` command.
-
-```bash
-# This command will run a file named deploy in the scripts/ directory
-$ ape run deploy
-```
-
-Learn more about scripting using Ape by following the [scripting guide](https://docs.apeworx.io/ape/stable/userguides/scripts.html).
-
-### Logging
-
-To enable debug logging, run your command with the `--verbosity` flag using `DEBUG` as the value:
-
-```bash
-ape --verbosity DEBUG run
-```
-
-### Networks
-
-You can work with registered networks, providers, and blockchain ecosystems (like Ethereum):
-
-```python
-from ape import networks
-with networks.ethereum.mainnet.use_provider("infura"):
-    ...  # Work with the infura provider here
-```
-
-To learn more about networks in Ape, see [this guide](https://docs.apeworx.io/ape/stable/commands/networks.html).
+[accounts-guide]: https://docs.apeworx.io/ape/stable/userguides/accounts.html
+[actions-badge]: https://github.com/ApeWorX/ape/actions/workflows/test.yaml/badge.svg
+[actions-url]: https://github.com/ApeWorX/ape/actions?query=branch%3Amain+event%3Apush
+[compile-guide]: https://docs.apeworx.io/ape/stable/userguides/compile.html
+[console-guide]: https://docs.apeworx.io/ape/stable/userguides/console.html
+[discord-badge]: https://img.shields.io/discord/922917176040640612.svg?logo=discord&style=flat-square
+[discord-url]: https://discord.gg/apeworx
+[licence-badge]: https://img.shields.io/github/license/ApeWorX/ape?color=blue
+[licence-url]: https://github.com/ApeWorX/ape/blob/main/LICENSE
+[logging-guide]: https://docs.apeworx.io/ape/stable/userguides/logging.html
+[networks-guide]: https://docs.apeworx.io/ape/stable/userguides/networks.html
+[projects-guide]: https://docs.apeworx.io/ape/stable/userguides/projects.html
+[pypi-badge]: https://img.shields.io/pypi/dm/eth-ape?label=pypi.org
+[pypi-url]: https://pypi.org/project/eth-ape/
+[scripting-guide]: https://docs.apeworx.io/ape/stable/userguides/scripts.html
+[testing-guide]: https://docs.apeworx.io/ape/stable/userguides/testing.html
+[twitter-badge]: https://img.shields.io/twitter/follow/ApeFramework
+[twitter-url]: https://twitter.com/ApeFramework

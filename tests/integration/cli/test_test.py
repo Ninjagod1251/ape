@@ -1,9 +1,12 @@
+import io
+import os
 import re
 from pathlib import Path
 from typing import Optional
 
 import pytest
 
+from ape.logging import logger
 from ape.pytest.fixtures import PytestApeFixtures
 from tests.conftest import GETH_URI, geth_process_test
 from tests.integration.cli.utils import skip_projects_except
@@ -19,7 +22,7 @@ TOKEN_B_GAS_REPORT = r"""
   transfer +\d +\d+ + \d+ + \d+ + \d+
 """
 EXPECTED_GAS_REPORT = rf"""
- +TestContractVy Gas
+ +VyperContract Gas
 
   Method +Times called +Min. +Max. +Mean +Median
  ─+
@@ -39,7 +42,7 @@ EXPECTED_GAS_REPORT = rf"""
 {TOKEN_B_GAS_REPORT}
 """
 GETH_LOCAL_CONFIG = f"""
-geth:
+node:
   ethereum:
     local:
       uri: {GETH_URI}
@@ -55,47 +58,74 @@ def filter_expected_methods(*methods_to_remove: str) -> str:
     return expected
 
 
+@pytest.fixture(autouse=True, scope="session")
+def path_check():
+    # Fix annoying issue where path cwd doesn't exist
+    # Something something temp path.
+    try:
+        os.getcwd()
+    except Exception:
+        os.chdir(f"{Path(__file__).parent}")
+
+
 @pytest.fixture(autouse=True)
-def load_dependencies(project):
+def load_dependencies(integ_project):
     """Ensure these are loaded before setting up pytester."""
-    project.load_dependencies()
+    integ_project.dependencies.install()
 
 
 @pytest.fixture
-def setup_pytester(pytester):
-    def setup(project_name: str):
-        project_path = BASE_PROJECTS_PATH / project_name
+def setup_pytester(pytester, owner):
+    # Mine to a new block so we are not capturing old transactions
+    # in the tests.
+    owner.transfer(owner, 0)
+
+    def setup(project):
+        project_path = BASE_PROJECTS_PATH / project.path.name
         tests_path = project_path / "tests"
 
         # Assume all tests should pass
         num_passes = 0
         num_failed = 0
         test_files = {}
-        for file_path in tests_path.iterdir():
-            if file_path.name.startswith("test_") and file_path.suffix == ".py":
-                content = file_path.read_text()
+        if tests_path.is_dir():
+            for file_path in tests_path.iterdir():
+                if not file_path.name.startswith("test_") or file_path.suffix != ".py":
+                    continue
+
+                content = file_path.read_text(encoding="utf8")
                 test_files[file_path.name] = content
                 num_passes += len(
                     [
                         x
-                        for x in content.split("\n")
-                        if x.startswith("def test_") and not x.startswith("def test_fail_")
+                        for x in content.splitlines()
+                        if x.lstrip().startswith("def test_") and not x.startswith("def test_fail_")
                     ]
                 )
                 num_failed += len(
-                    [x for x in content.split("\n") if x.startswith("def test_fail_")]
+                    [x for x in content.splitlines() if x.startswith("def test_fail_")]
                 )
 
-        pytester.makepyfile(**test_files)
+            pytester.makepyfile(**test_files)
 
         # Make other files
         def _make_all_files(base: Path, prefix: Optional[Path] = None):
+            if not base.is_dir():
+                return
+
             for file in base.iterdir():
-                if file.is_dir() and not file.name == "tests":
+                if file.is_dir() and file.name != "tests":
                     _make_all_files(file, prefix=Path(file.name))
-                elif file.is_file():
+                elif file.is_file() and file.suffix not in (".sol", ".vy"):
                     name = (prefix / file.name).as_posix() if prefix else file.name
-                    src = {name: file.read_text().splitlines()}
+
+                    if name == "ape-config.yaml":
+                        # Hack in in-memory overrides for testing purposes.
+                        text = str(project.config)
+                    else:
+                        text = file.read_text(encoding="utf8")
+
+                    src = {name: text.splitlines()}
                     pytester.makefile(file.suffix, **src)
 
         _make_all_files(project_path)
@@ -123,7 +153,7 @@ def run_gas_test(
             gas_header_line_index = index
 
     assert gas_header_line_index is not None, "'Gas Profile' not in output."
-    expected = expected_report.split("\n")[1:]
+    expected = [x for x in expected_report.rstrip().split("\n")[1:]]
     start_index = gas_header_line_index + 1
     end_index = start_index + len(expected)
     actual = [x.rstrip() for x in result.outlines[start_index:end_index]]
@@ -145,21 +175,25 @@ def run_gas_test(
 
 
 @skip_projects_except("test", "with-contracts")
-def test_test(setup_pytester, project, pytester, eth_tester_provider):
+def test_test(setup_pytester, integ_project, pytester, eth_tester_provider):
     _ = eth_tester_provider  # Ensure using EthTester for this test.
-    passed, failed = setup_pytester(project.path.name)
-    from ape.logging import logger
+    passed, failed = setup_pytester(integ_project)
 
-    logger.set_level("DEBUG")
-    result = pytester.runpytest()
-    result.assert_outcomes(passed=passed, failed=failed), "\n".join(result.outlines)
+    with logger.at_level("DEBUG"):
+        result = pytester.runpytest_subprocess(timeout=120)
+
+    outcomes = result.parseoutcomes()
+    assert "failed" not in outcomes if failed == 0 else outcomes["failed"] == failed
+    if integ_project.name != "test":
+        assert outcomes["passed"] == passed
+    # else: too many parametrized tests to calculate. No fails is good enough.
 
 
 @skip_projects_except("with-contracts")
-def test_uncaught_txn_err(setup_pytester, project, pytester, eth_tester_provider):
+def test_uncaught_txn_err(setup_pytester, integ_project, pytester, eth_tester_provider):
     _ = eth_tester_provider  # Ensure using EthTester for this test.
-    setup_pytester(project.path.name)
-    result = pytester.runpytest()
+    setup_pytester(integ_project)
+    result = pytester.runpytest_subprocess(timeout=120)
     expected = """
     contract_in_test.setNumber(5, sender=owner)
 E   ape.exceptions.ContractLogicError: Transaction failed.
@@ -168,10 +202,10 @@ E   ape.exceptions.ContractLogicError: Transaction failed.
 
 
 @skip_projects_except("with-contracts")
-def test_show_internal(setup_pytester, project, pytester, eth_tester_provider):
+def test_show_internal(setup_pytester, integ_project, pytester, eth_tester_provider):
     _ = eth_tester_provider  # Ensure using EthTester for this test.
-    setup_pytester(project.path.name)
-    result = pytester.runpytest("--showinternal")
+    setup_pytester(integ_project)
+    result = pytester.runpytest_subprocess("--show-internal")
     expected = """
     raise vm_err from err
 E   ape.exceptions.ContractLogicError: Transaction failed.
@@ -180,18 +214,69 @@ E   ape.exceptions.ContractLogicError: Transaction failed.
 
 
 @skip_projects_except("test", "with-contracts")
-def test_test_isolation_disabled(setup_pytester, project, pytester, eth_tester_provider):
+def test_isolation_disabled(setup_pytester, integ_project, pytester, eth_tester_provider):
     # check the disable isolation option actually disables built-in isolation
     _ = eth_tester_provider  # Ensure using EthTester for this test.
-    setup_pytester(project.path.name)
-    result = pytester.runpytest("--disable-isolation", "--setup-show")
+    setup_pytester(integ_project)
+    result = pytester.runpytest_subprocess("--disable-isolation", "--setup-show")
     assert "F _function_isolation" not in "\n".join(result.outlines)
 
 
+@skip_projects_except("test")
+def test_verbosity(runner, ape_cli):
+    """
+    Tests again an issue where `ape test -v debug` would fail because of
+    an invalid type check from click; only appeared in `ape test` command
+    for some reason.
+    """
+    # NOTE: Only using `--fixtures` flag to avoid running tests (just prints fixtures).
+    cmd = ("test", "--verbosity", "DEBUG", "--fixtures")
+    result = runner.invoke(ape_cli, cmd, catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+
+
+@skip_projects_except("test")
+@pytest.mark.parametrize("v_arg", ("-v", "-vv", "-vvv"))
+def test_vvv(runner, ape_cli, integ_project, v_arg):
+    """
+    Showing you can somehow use pytest's -v flag without
+    messing up Ape.
+    """
+    here = integ_project.path
+    os.chdir(integ_project.path)
+    name = f"test_{v_arg.replace('-', '_')}"
+
+    TEST = f"""
+    def {name}():
+        assert True
+    """.lstrip()
+
+    # Have to create a new test each time to avoid .pycs issues
+    new_test_file = integ_project.tests_folder / f"{name}.py"
+    new_test_file.write_text(TEST)
+
+    try:
+        # NOTE: v_arg purposely at the end because testing doesn't interfere
+        #   with click's option parsing "requires value" error.
+        result = runner.invoke(
+            ape_cli,
+            ("test", f"tests/{new_test_file.name}::{name}", v_arg),
+            catch_exceptions=False,
+        )
+    finally:
+        new_test_file.unlink(missing_ok=True)
+        os.chdir(here)
+
+    assert result.exit_code == 0, result.output
+    # Prove `-vvv` worked via the output.
+    # It shows PASSED instead of the little green dot.
+    assert "PASSED" in result.output
+
+
 @skip_projects_except("test", "with-contracts")
-def test_fixture_docs(setup_pytester, project, pytester, eth_tester_provider):
+def test_fixture_docs(setup_pytester, integ_project, pytester, eth_tester_provider):
     _ = eth_tester_provider  # Ensure using EthTester for this test.
-    result = pytester.runpytest("-q", "--fixtures")
+    result = pytester.runpytest_subprocess("-q", "--fixtures")
     actual = "\n".join(result.outlines)
 
     # 'accounts', 'networks', 'chain', and 'project' (etc.)
@@ -203,112 +288,184 @@ def test_fixture_docs(setup_pytester, project, pytester, eth_tester_provider):
 
 
 @skip_projects_except("with-contracts")
-def test_gas_flag_when_not_supported(setup_pytester, project, pytester, eth_tester_provider):
+def test_gas_flag_when_not_supported(
+    setup_pytester, project, integ_project, pytester, eth_tester_provider
+):
     _ = eth_tester_provider  # Ensure using EthTester for this test.
-    setup_pytester(project.path.name)
-    path = f"{project.path}/tests/test_contract.py::test_contract_interaction_in_tests"
-    result = pytester.runpytest(path, "--gas")
-    assert (
+    setup_pytester(integ_project)
+    path = f"{integ_project.path}/tests/test_contract.py"
+    path_w_test = f"{path}::test_contract_interaction_in_tests"
+    result = pytester.runpytest(path_w_test, "--gas")
+    actual = "\n".join(result.outlines)
+    expected = (
         "Provider 'test' does not support transaction tracing. "
         "The gas profile is limited to receipt-level data."
-    ) in "\n".join(result.outlines)
+    )
+    assert expected in actual
 
 
 @geth_process_test
 @skip_projects_except("geth")
-def test_gas_flag_in_tests(geth_provider, setup_pytester, project, pytester):
-    passed, failed = setup_pytester(project.path.name)
-    result = pytester.runpytest("--gas")
+def test_gas_flag_in_tests(geth_provider, setup_pytester, integ_project, pytester, owner):
+    owner.transfer(owner, "1 wei")  # Do this to force a clean slate.
+    passed, failed = setup_pytester(integ_project)
+    result = pytester.runpytest_subprocess("--gas", "--network", "ethereum:local:node")
     run_gas_test(result, passed, failed)
 
 
 @geth_process_test
 @skip_projects_except("geth")
-def test_gas_flag_set_in_config(geth_provider, setup_pytester, project, pytester, switch_config):
-    passed, failed = setup_pytester(project.path.name)
-    config_content = f"""
-    geth:
-      ethereum:
-        local:
-          uri: {GETH_URI}
-
-    ethereum:
-      local:
-        default_provider: geth
-
-    test:
-      disconnect_providers_after: false
-      gas:
-        show: true
-    """
-
-    with switch_config(project, config_content):
-        result = pytester.runpytest()
+def test_gas_flag_set_in_config(
+    geth_provider, setup_pytester, integ_project, pytester, geth_account
+):
+    geth_account.transfer(geth_account, "1 wei")  # Force a clean block.
+    cfg = integ_project.config.model_dump(by_alias=True, mode="json")
+    cfg["test"]["gas"] = {"reports": ["terminal"]}
+    with integ_project.temp_config(**cfg):
+        passed, failed = setup_pytester(integ_project)
+        result = pytester.runpytest_subprocess("--network", "ethereum:local:node")
         run_gas_test(result, passed, failed)
 
 
 @geth_process_test
 @skip_projects_except("geth")
-def test_gas_flag_exclude_using_cli_option(geth_provider, setup_pytester, project, pytester):
-    passed, failed = setup_pytester(project.path.name)
+def test_gas_when_estimating(geth_provider, setup_pytester, integ_project, pytester, geth_account):
+    """
+    Shows that gas reports still work when estimating gas.
+    """
+    cfg = integ_project.config.model_dump(by_alias=True, mode="json")
+    cfg["test"]["gas"] = {"reports": ["terminal"]}
+    geth_account.transfer(geth_account, "1 wei")  # Force a clean block.
+    with integ_project.temp_config(**cfg):
+        passed, failed = setup_pytester(integ_project)
+        result = pytester.runpytest_subprocess(timeout=120)
+        run_gas_test(result, passed, failed)
+
+
+@geth_process_test
+@skip_projects_except("geth")
+def test_gas_flag_exclude_using_cli_option(
+    geth_provider, setup_pytester, integ_project, pytester, geth_account
+):
+    geth_account.transfer(geth_account, "1 wei")  # Force a clean block.
+    passed, failed = setup_pytester(integ_project)
     # NOTE: Includes both a mutable and a view method.
     expected = filter_expected_methods("fooAndBar", "myNumber")
     # Also ensure can filter out whole class
     expected = expected.replace(TOKEN_B_GAS_REPORT, "")
-    result = pytester.runpytest("--gas", "--gas-exclude", "*:fooAndBar,*:myNumber,tokenB:*")
+    result = pytester.runpytest_subprocess(
+        "--gas",
+        "--gas-exclude",
+        "*:fooAndBar,*:myNumber,tokenB:*",
+        "--network",
+        "ethereum:local:node",
+    )
     run_gas_test(result, passed, failed, expected_report=expected)
 
 
 @geth_process_test
 @skip_projects_except("geth")
 def test_gas_flag_exclusions_set_in_config(
-    geth_provider, setup_pytester, project, pytester, switch_config
+    geth_provider, setup_pytester, integ_project, pytester, geth_account
 ):
-    passed, failed = setup_pytester(project.path.name)
+    geth_account.transfer(geth_account, "1 wei")  # Force a clean block.
     # NOTE: Includes both a mutable and a view method.
     expected = filter_expected_methods("fooAndBar", "myNumber")
     # Also ensure can filter out whole class
     expected = expected.replace(TOKEN_B_GAS_REPORT, "")
-    config_content = rf"""
-    geth:
-      ethereum:
-        local:
-          uri: {GETH_URI}
-
-    ethereum:
-      local:
-        default_provider: geth
-
-    test:
-      disconnect_providers_after: false
-      gas:
-        exclude:
-          - method_name: fooAndBar
-          - method_name: myNumber
-          - contract_name: TokenB
-    """
-    with switch_config(project, config_content):
-        result = pytester.runpytest("--gas")
+    cfg = integ_project.config.model_dump(by_alias=True, mode="json")
+    cfg["test"]["gas"] = {
+        "exclude": [
+            {"method_name": "fooAndBar"},
+            {"method_name": "myNumber"},
+            {"contract_name": "TokenB"},
+        ]
+    }
+    with integ_project.temp_config(**cfg):
+        passed, failed = setup_pytester(integ_project)
+        result = pytester.runpytest_subprocess("--gas", "--network", "ethereum:local:node")
         run_gas_test(result, passed, failed, expected_report=expected)
 
 
 @geth_process_test
 @skip_projects_except("geth")
-def test_gas_flag_excluding_contracts(geth_provider, setup_pytester, project, pytester):
-    passed, failed = setup_pytester(project.path.name)
-    result = pytester.runpytest("--gas", "--gas-exclude", "TestContractVy,TokenA")
+def test_gas_flag_excluding_contracts(
+    geth_provider, setup_pytester, integ_project, pytester, geth_account
+):
+    geth_account.transfer(geth_account, "1 wei")  # Force a clean block.
+    passed, failed = setup_pytester(integ_project)
+    result = pytester.runpytest_subprocess(
+        "--gas", "--gas-exclude", "VyperContract,TokenA", "--network", "ethereum:local:node"
+    )
     run_gas_test(result, passed, failed, expected_report=TOKEN_B_GAS_REPORT)
 
 
 @geth_process_test
 @skip_projects_except("geth")
-def test_coverage(geth_provider, setup_pytester, project, pytester):
+def test_coverage(geth_provider, setup_pytester, integ_project, pytester, geth_account):
     """
     Ensures the --coverage flag works.
     For better coverage tests, see ape-vyper because the Vyper
     plugin is what implements the `trace_source()` method which does the bulk
     of the coverage work.
     """
-    passed, failed = setup_pytester(project.path.name)
-    result = pytester.runpytest("--coverage", "--showinternal")
+    geth_account.transfer(geth_account, "1 wei")  # Force a clean block.
+    passed, failed = setup_pytester(integ_project)
+    result = pytester.runpytest_subprocess(
+        "--coverage", "--show-internal", "--network", "ethereum:local:node"
+    )
     result.assert_outcomes(passed=passed, failed=failed)
+
+
+@skip_projects_except("with-contracts")
+def test_interactive(eth_tester_provider, integ_project, pytester, monkeypatch):
+    secret = "__ 123 super secret 123 __"
+    test = f"""
+def test_fails():
+    foo = "{secret}"
+    raise Exception("__FAIL__")
+"""
+    pytester.makepyfile(test)
+    stdin = "print(foo)\nexit\n"
+    monkeypatch.setattr("sys.stdin", io.StringIO(stdin))
+    result = pytester.runpytest_subprocess("--interactive", "-s")
+    result.assert_outcomes(failed=1)
+    actual = str(result.stdout)
+    assert secret in actual
+    assert "__FAIL__" in actual
+
+
+@skip_projects_except("with-contracts")
+def test_watch(mocker, integ_project, runner, ape_cli):
+    runner_patch = mocker.patch("ape_test._cli._run_with_observer")
+
+    # Only passing `-s` so we have an extra arg to test.
+    result = runner.invoke(ape_cli, ("test", "--watch", "-s"))
+    assert result.exit_code == 0
+
+    runner_patch.assert_called_once_with((Path("contracts"), Path("tests")), 0.5, "-s")
+
+
+@skip_projects_except("with-contracts")
+def test_project_option(integ_project, ape_cli, runner):
+    _ = integ_project  # NOTE: Not actually used, but avoid running across all projects.
+
+    # NOTE: Using isolated filesystem so that
+    with runner.isolated_filesystem():
+        # Setup a project
+        project_name = "test-token-project"
+        project_dir = Path.cwd() / project_name
+        tests_dir = project_dir / "tests"
+        tests_dir.mkdir(parents=True)
+
+        # Setup a test
+        test_file = tests_dir / "test_project_option.py"
+        test_text = """
+def test_project_option():
+    assert True
+""".lstrip()
+        test_file.write_text(test_text)
+
+        result = runner.invoke(ape_cli, ("test", "--project", f"./{project_name}"))
+        assert "1 passed" in result.output
+        assert result.exit_code == 0

@@ -3,13 +3,29 @@ from os import environ
 import pytest
 from eip712.messages import EIP712Message
 from eth_account.messages import encode_defunct
+from eth_pydantic_types import HexBytes
+from eth_utils import to_hex
+from ethpm_types import ContractType
 
 import ape
 from ape.api import ImpersonatedAccount
-from ape.exceptions import AccountsError, NetworkError, ProjectError, SignatureError
-from ape.types import AutoGasLimit
+from ape.contracts import ContractContainer
+from ape.exceptions import (
+    AccountsError,
+    AliasAlreadyInUseError,
+    MissingDeploymentBytecodeError,
+    NetworkError,
+    ProjectError,
+    SignatureError,
+)
+from ape.types.gas import AutoGasLimit
 from ape.types.signatures import recover_signer
-from ape.utils.testing import DEFAULT_NUMBER_OF_TEST_ACCOUNTS
+from ape_accounts.accounts import (
+    KeyfileAccount,
+    generate_account,
+    import_account_from_mnemonic,
+    import_account_from_private_key,
+)
 from ape_ethereum.ecosystem import ProxyType
 from ape_ethereum.transactions import TransactionType
 from ape_test.accounts import TestAccount
@@ -24,8 +40,10 @@ MISSING_VALUE_TRANSFER_ERR_MSG = "Must provide 'VALUE' or use 'send_everything=T
 APE_TEST_PATH = "ape_test.accounts.TestAccount"
 APE_ACCOUNTS_PATH = "ape_accounts.accounts.KeyfileAccount"
 
-PASSPHRASE = "a"
+PASSPHRASE = "asdf1234"
 INVALID_PASSPHRASE = "incorrect passphrase"
+MNEMONIC = "test test test test test test test test test test test junk"
+PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 
 
 @pytest.fixture(params=(APE_TEST_PATH, APE_ACCOUNTS_PATH))
@@ -37,35 +55,54 @@ def core_account(request, owner, keyfile_account):
         yield keyfile_account  # from ape_accounts plugin
 
 
+@pytest.fixture
+def message():
+    return encode_defunct(text="Hello Apes!")
+
+
 class Foo(EIP712Message):
     _name_: "string" = "Foo"  # type: ignore  # noqa: F821
     bar: "address"  # type: ignore  # noqa: F821
 
 
-def test_sign_message(signer):
-    message = encode_defunct(text="Hello Apes!")
+def test_sign_message(signer, message):
     signature = signer.sign_message(message)
     assert signer.check_signature(message, signature)
 
 
-def test_recover_signer(signer):
-    message = encode_defunct(text="Hello Apes!")
+def test_sign_string(signer):
+    message = "Hello Apes!"
+    signature = signer.sign_message(message)
+    assert signer.check_signature(message, signature)
+
+
+def test_sign_int(signer):
+    message = 4
+    signature = signer.sign_message(message)
+    assert signer.check_signature(message, signature)
+
+
+def test_sign_message_unsupported_type_returns_none(signer):
+    message = 1234.123
+    signature = signer.sign_message(message)
+    assert signature is None
+
+
+def test_recover_signer(signer, message):
     signature = signer.sign_message(message)
     assert recover_signer(message, signature) == signer
 
 
 def test_sign_eip712_message(signer):
-    foo = Foo(signer.address)  # type: ignore
-    message = foo.signable_message
-    signature = signer.sign_message(message)
-    assert signer.check_signature(message, signature)
+    foo = Foo(signer.address)  # type: ignore[call-arg]
+    signature = signer.sign_message(foo)
+    assert signer.check_signature(foo, signature)
 
 
-def test_sign_message_with_prompts(runner, keyfile_account):
+def test_sign_message_with_prompts(runner, keyfile_account, message):
     # "y\na\ny": yes sign, password, yes keep unlocked
     start_nonce = keyfile_account.nonce
-    with runner.isolation(input="y\na\ny"):
-        message = encode_defunct(text="Hello Apes!")
+    with runner.isolation(input=f"y\n{PASSPHRASE}\ny"):
         signature = keyfile_account.sign_message(message)
         assert keyfile_account.check_signature(message, signature)
 
@@ -77,6 +114,21 @@ def test_sign_message_with_prompts(runner, keyfile_account):
     # Nonce should not change from signing messages.
     end_nonce = keyfile_account.nonce
     assert start_nonce == end_nonce
+
+
+def test_sign_raw_hash(runner, keyfile_account):
+    # NOTE: `message` is a 32 byte raw hash, which is treated specially
+    message = b"\xAB" * 32
+
+    # "y\na\ny": yes sign raw hash, password, yes keep unlocked
+    with runner.isolation(input=f"y\n{PASSPHRASE}\ny"):
+        signature = keyfile_account.sign_raw_msghash(message)
+        assert keyfile_account.check_signature(message, signature, recover_using_eip191=False)
+
+    # "n\nn": no sign raw hash: don't sign
+    with runner.isolation(input="n"):
+        signature = keyfile_account.sign_message(message)
+        assert signature is None
 
 
 def test_transfer(sender, receiver, eth_tester_provider, convert):
@@ -158,7 +210,7 @@ def test_transfer_with_value_send_everything_true(sender, receiver):
 
 def test_transfer_with_prompts(runner, receiver, keyfile_account):
     # "y\na\ny": yes sign, password, yes keep unlocked
-    with runner.isolation("y\na\ny"):
+    with runner.isolation(f"y\n{PASSPHRASE}\ny"):
         receipt = keyfile_account.transfer(receiver, "1 gwei")
         assert receipt.receiver == receiver
 
@@ -175,7 +227,41 @@ def test_transfer_using_type_0(sender, receiver, convert):
     assert receiver.balance == expected
 
 
-def test_deploy(owner, contract_container, chain, clean_contracts_cache):
+def test_transfer_value_of_0(sender, receiver):
+    """
+    There was a bug where this failed, thinking there was no value.
+    """
+    initial_balance = receiver.balance
+    sender.transfer(receiver, 0)
+    assert receiver.balance == initial_balance
+
+    # Also show conversion works.
+    sender.transfer(receiver, "0 wei")
+    assert receiver.balance == initial_balance
+
+
+def test_transfer_mixed_up_sender_and_value(sender, receiver):
+    """
+    Testing the case where the user mixes up the argument order,
+    it should show a nicer error than it was previously, as this is
+    a common and easy mistake.
+    """
+    expected = (
+        r"Cannot use integer-type for the `receiver` "
+        r"argument in the `\.transfer\(\)` method \(this "
+        r"protects against accidentally passing the "
+        r"`value` as the `receiver`\)."
+    )
+    with pytest.raises(AccountsError, match=expected):
+        sender.transfer(123, receiver)
+
+    # Similarly show using currency-str (may fail for different error).
+    expected = r"Invalid `receiver` value: '123 wei'\."
+    with pytest.raises(AccountsError, match=expected):
+        sender.transfer("123 wei", receiver)
+
+
+def test_deploy(owner, contract_container, clean_contract_caches):
     contract = owner.deploy(contract_container, 0)
     assert contract.address
     assert contract.txn_hash
@@ -209,6 +295,7 @@ def test_deploy_and_publish(owner, contract_container, dummy_live_network, mock_
     dummy_live_network.__dict__["explorer"] = mock_explorer
     contract = owner.deploy(contract_container, 0, publish=True, required_confirmations=0)
     mock_explorer.publish_contract.assert_called_once_with(contract.address)
+    dummy_live_network.__dict__["explorer"] = None
 
 
 @explorer_test
@@ -216,21 +303,75 @@ def test_deploy_and_not_publish(owner, contract_container, dummy_live_network, m
     dummy_live_network.__dict__["explorer"] = mock_explorer
     owner.deploy(contract_container, 0, publish=True, required_confirmations=0)
     assert not mock_explorer.call_count
+    dummy_live_network.__dict__["explorer"] = None
 
 
 def test_deploy_proxy(owner, vyper_contract_instance, proxy_contract_container, chain):
     target = vyper_contract_instance.address
     proxy = owner.deploy(proxy_contract_container, target)
-    assert proxy.address in chain.contracts._local_contract_types
-    assert proxy.address in chain.contracts._local_proxies
 
-    actual = chain.contracts._local_proxies[proxy.address]
-    assert actual.target == target
-    assert actual.type == ProxyType.Delegate
+    # Ensure we can call both proxy and target methods on it.
+    assert proxy.implementation  # No attr err
+    assert proxy.myNumber  # No attr err
+
+    # Ensure was properly cached.
+    assert proxy.address in chain.contracts.contract_types
+    assert proxy.address in chain.contracts.proxy_infos
+
+    # Show the cached proxy info is correct.
+    proxy_info = chain.contracts.proxy_infos[proxy.address]
+    assert proxy_info.target == target
+    assert proxy_info.type == ProxyType.Delegate
+    assert proxy_info.abi.name == "implementation"
 
     # Show we get the implementation contract type using the proxy address
-    implementation = chain.contracts.instance_at(proxy.address)
-    assert implementation.contract_type == vyper_contract_instance.contract_type
+    re_contract = chain.contracts.instance_at(proxy.address)
+    assert re_contract.contract_type == proxy.contract_type
+
+    # Show proxy methods are not available on target alone.
+    target = chain.contracts.instance_at(proxy_info.target)
+    assert target.myNumber  # No attr err
+    with pytest.raises(AttributeError):
+        _ = target.implementation
+
+
+def test_deploy_instance(owner, vyper_contract_instance):
+    """
+    Tests against a confusing scenario where you would get a SignatureError when
+    trying to deploy a ContractInstance because Ape would attempt to create a tx
+    by calling the contract's default handler.
+    """
+
+    expected = (
+        r"contract argument must be a ContractContainer type, "
+        r"such as 'project\.MyContract' where 'MyContract' is the "
+        r"name of a contract in your project\."
+    )
+    with pytest.raises(TypeError, match=expected):
+        owner.deploy(vyper_contract_instance)
+
+
+@pytest.mark.parametrize("bytecode", (None, {}, {"bytecode": "0x"}))
+def test_deploy_no_deployment_bytecode(owner, bytecode):
+    """
+    https://github.com/ApeWorX/ape/issues/1904
+    """
+    expected = (
+        r"Cannot deploy: contract 'Apes' has no deployment-bytecode\. "
+        r"Are you attempting to deploy an interface\?"
+    )
+    contract_type = ContractType.model_validate(
+        {"abi": [], "contractName": "Apes", "deploymentBytecode": bytecode}
+    )
+    contract = ContractContainer(contract_type)
+    with pytest.raises(MissingDeploymentBytecodeError, match=expected):
+        owner.deploy(contract)
+
+
+def test_deploy_contract_type(owner, vyper_contract_type, clean_contract_caches):
+    contract = owner.deploy(vyper_contract_type, 0)
+    assert contract.address
+    assert contract.txn_hash
 
 
 def test_send_transaction_with_bad_nonce(sender, receiver):
@@ -241,9 +382,28 @@ def test_send_transaction_with_bad_nonce(sender, receiver):
         sender.transfer(receiver, "1 gwei", type=0, nonce=0)
 
 
-def test_send_transaction_without_enough_funds(sender, receiver):
-    with pytest.raises(AccountsError, match="Transfer value meets or exceeds account balance"):
+def test_send_transaction_without_enough_funds(sender, receiver, eth_tester_provider, convert):
+    expected = (
+        rf"Transfer value meets or exceeds account balance for account '{sender.address}' .*"
+        rf"on chain '{eth_tester_provider.chain_id}' using provider '{eth_tester_provider.name}'\."
+        rf"\nAre you using the correct account / chain \/ provider combination\?"
+        rf"\n\(transfer_value=\d+, balance=\d+\)\."
+    )
+    with pytest.raises(AccountsError, match=expected):
         sender.transfer(receiver, "10000000000000 ETH")
+
+
+def test_send_transaction_without_enough_funds_impersonated_account(
+    receiver, accounts, eth_tester_provider, convert
+):
+    address = "0x4838B106FCe9647Bdf1E7877BF73cE8B0BAD5f97"  # Not a test account!
+    impersonated_account = ImpersonatedAccount(raw_address=address)
+    accounts._impersonated_accounts[address] = impersonated_account
+
+    # Basically, it failed anywhere else besides the AccountsError you get from not
+    # enough balance.
+    with pytest.raises(SignatureError):
+        impersonated_account.transfer(receiver, "10000000000000 ETH")
 
 
 def test_send_transaction_sets_defaults(sender, receiver):
@@ -252,52 +412,87 @@ def test_send_transaction_sets_defaults(sender, receiver):
     assert receipt.required_confirmations == 0
 
 
-def test_accounts_splice_access(test_accounts):
-    a, b = test_accounts[:2]
-    assert a == test_accounts[0]
-    assert b == test_accounts[1]
-    c = test_accounts[-1]
-    assert c == test_accounts[len(test_accounts) - 1]
-    assert len(test_accounts[::2]) == len(test_accounts) / 2
+def test_account_index_access(accounts):
+    account = accounts[0]
+    assert account.index == 0
+    last_account = accounts[-1]
+    assert last_account.index == len(accounts) - 1
+
+
+def test_accounts_splice_access(accounts):
+    alice, bob = accounts[:2]
+    assert alice == accounts[0]
+    assert bob == accounts[1]
+    cat = accounts[-1]
+    assert cat == accounts[len(accounts) - 1]
+    expected = (len(accounts) // 2) if len(accounts) % 2 == 0 else (len(accounts) // 2 + 1)
+    assert len(accounts[::2]) == expected
 
 
 def test_accounts_address_access(owner, accounts):
     assert accounts[owner.address] == owner
 
 
+def test_accounts_address_access_conversion_fail(account_manager):
+    with pytest.raises(
+        KeyError,
+        match=(
+            r"No account with ID 'FAILS'\. "
+            r"Do you have the necessary conversion plugins installed?"
+        ),
+    ):
+        _ = account_manager["FAILS"]
+
+
+def test_accounts_address_access_not_found(accounts):
+    address = "0x1222262222222922222222222222222222222222"
+    with pytest.raises(KeyError, match=rf"No account with address '{address}'\."):
+        _ = accounts[address]
+
+
+def test_test_accounts_address_access_conversion_fail(accounts):
+    with pytest.raises(KeyError, match=r"No account with ID 'FAILS'"):
+        _ = accounts["FAILS"]
+
+
+def test_test_accounts_address_access_not_found(accounts):
+    address = "0x1222262222222922222222222222222222222222"
+    with pytest.raises(KeyError, match=rf"No account with address '{address}'\."):
+        _ = accounts[address]
+
+
 def test_accounts_contains(accounts, owner):
     assert owner.address in accounts
 
 
-def test_autosign_messages(runner, keyfile_account):
-    keyfile_account.set_autosign(True, passphrase="a")
-    message = encode_defunct(text="Hello Apes!")
+def test_autosign_messages(runner, keyfile_account, message):
+    keyfile_account.set_autosign(True, passphrase=PASSPHRASE)
     signature = keyfile_account.sign_message(message)
     assert keyfile_account.check_signature(message, signature)
 
     # Re-enable prompted signing
     keyfile_account.set_autosign(False)
-    with runner.isolation(input="y\na\n"):
+    with runner.isolation(input=f"y\n{PASSPHRASE}\n"):
         signature = keyfile_account.sign_message(message)
         assert keyfile_account.check_signature(message, signature)
 
 
 def test_autosign_transactions(runner, keyfile_account, receiver):
-    keyfile_account.set_autosign(True, passphrase="a")
+    keyfile_account.set_autosign(True, passphrase=PASSPHRASE)
     assert keyfile_account.transfer(receiver, "1 gwei")
 
     # Re-enable prompted signing
     keyfile_account.set_autosign(False)
-    with runner.isolation(input="y\na\n"):
+    with runner.isolation(input=f"y\n{PASSPHRASE}\n"):
         assert keyfile_account.transfer(receiver, "1 gwei")
 
 
 def test_impersonate_not_implemented(accounts, address):
     expected_err_msg = (
-        "Your provider does not support impersonating accounts:\n"
-        f"No account with address '{address}'."
+        r"Your provider does not support impersonating accounts:\\n"
+        rf"No account with address '{address}'\."
     )
-    with pytest.raises(IndexError, match=expected_err_msg):
+    with pytest.raises(KeyError, match=expected_err_msg):
         _ = accounts[address]
 
 
@@ -305,9 +500,9 @@ def test_impersonated_account_ignores_signature_check_on_txn(accounts, address):
     account = ImpersonatedAccount(raw_address=address)
 
     # Impersonate hack, since no providers in core actually support it.
-    accounts.test_accounts._impersonated_accounts[address] = account
-    other_0 = accounts.test_accounts[8]
-    other_1 = accounts.test_accounts[9]
+    accounts._impersonated_accounts[address] = account
+    other_0 = accounts[8]
+    other_1 = accounts[9]
     txn = other_0.transfer(other_1, "1 gwei").transaction
 
     # Hack in fake sender.
@@ -321,16 +516,15 @@ def test_impersonated_account_ignores_signature_check_on_txn(accounts, address):
 
 def test_contract_as_sender_non_fork_network(contract_instance):
     expected_err_msg = (
-        "Your provider does not support impersonating accounts:\n"
-        f"No account with address '{contract_instance}'."
+        r"Your provider does not support impersonating accounts:\\n"
+        rf"No account with address '{contract_instance}'\."
     )
-    with pytest.raises(IndexError, match=expected_err_msg):
+    with pytest.raises(KeyError, match=expected_err_msg):
         contract_instance.setNumber(5, sender=contract_instance)
 
 
-def test_unlock_with_passphrase_and_sign_message(runner, keyfile_account):
-    keyfile_account.unlock(passphrase="a")
-    message = encode_defunct(text="Hello Apes!")
+def test_unlock_with_passphrase_and_sign_message(runner, keyfile_account, message):
+    keyfile_account.unlock(passphrase=PASSPHRASE)
 
     # y: yes, sign (note: unlocking makes the key available but is not the same as autosign).
     with runner.isolation(input="y\n"):
@@ -338,11 +532,10 @@ def test_unlock_with_passphrase_and_sign_message(runner, keyfile_account):
         assert keyfile_account.check_signature(message, signature)
 
 
-def test_unlock_from_prompt_and_sign_message(runner, keyfile_account):
+def test_unlock_from_prompt_and_sign_message(runner, keyfile_account, message):
     # a = password
-    with runner.isolation(input="a\n"):
+    with runner.isolation(input=f"{PASSPHRASE}\n"):
         keyfile_account.unlock()
-        message = encode_defunct(text="Hello Apes!")
 
     # yes, sign the message
     with runner.isolation(input="y\n"):
@@ -351,7 +544,7 @@ def test_unlock_from_prompt_and_sign_message(runner, keyfile_account):
 
 
 def test_unlock_with_passphrase_and_sign_transaction(runner, keyfile_account, receiver):
-    keyfile_account.unlock(passphrase="a")
+    keyfile_account.unlock(passphrase=PASSPHRASE)
     # y: yes, sign (note: unlocking makes the key available but is not the same as autosign).
     with runner.isolation(input="y\n"):
         receipt = keyfile_account.transfer(receiver, "1 gwei")
@@ -360,7 +553,7 @@ def test_unlock_with_passphrase_and_sign_transaction(runner, keyfile_account, re
 
 def test_unlock_from_prompt_and_sign_transaction(runner, keyfile_account, receiver):
     # a = password
-    with runner.isolation(input="a\n"):
+    with runner.isolation(input=f"{PASSPHRASE}\n"):
         keyfile_account.unlock()
 
     # yes, sign the transaction
@@ -369,8 +562,9 @@ def test_unlock_from_prompt_and_sign_transaction(runner, keyfile_account, receiv
         assert receipt.receiver == receiver
 
 
-def test_unlock_with_passphrase_from_env_and_sign_message(runner, keyfile_account):
+def test_unlock_with_passphrase_from_env_and_sign_message(runner, keyfile_account, message):
     ENV_VARIABLE = f"APE_ACCOUNTS_{keyfile_account.alias}_PASSPHRASE"
+
     # Set environment variable with passphrase
     environ[ENV_VARIABLE] = PASSPHRASE
 
@@ -379,8 +573,6 @@ def test_unlock_with_passphrase_from_env_and_sign_message(runner, keyfile_accoun
 
     # Account should be unlocked
     assert not keyfile_account.locked
-
-    message = encode_defunct(text="Hello Apes!")
 
     # y: yes, sign (note: unlocking makes the key available but is not the same as autosign).
     with runner.isolation(input="y\n"):
@@ -402,23 +594,34 @@ def test_unlock_with_wrong_passphrase_from_env(keyfile_account):
     assert keyfile_account.locked
 
 
-def test_custom_num_of_test_accounts_config(test_accounts, temp_config):
-    custom_number_of_test_accounts = 20
+def test_unlock_and_reload(runner, account_manager, keyfile_account, message):
+    """
+    Tests against a condition where reloading after unlocking
+    would not honor unlocked state.
+    """
+    keyfile_account.unlock(passphrase=PASSPHRASE)
+    reloaded_account = account_manager.load(keyfile_account.alias)
+
+    # y: yes, sign (note: unlocking makes the key available but is not the same as autosign).
+    with runner.isolation(input="y\n"):
+        signature = reloaded_account.sign_message(message)
+        assert keyfile_account.check_signature(message, signature)
+
+
+def test_custom_num_of_test_accounts_config(accounts, project):
+    custom_number_of_test_accounts = 25
     test_config = {
         "test": {
             "number_of_accounts": custom_number_of_test_accounts,
         }
     }
-
-    assert len(test_accounts) == DEFAULT_NUMBER_OF_TEST_ACCOUNTS
-
-    with temp_config(test_config):
-        assert len(test_accounts) == custom_number_of_test_accounts
+    with project.temp_config(**test_config):
+        assert len(accounts) == custom_number_of_test_accounts
 
 
-def test_test_accounts_repr(test_accounts):
-    actual = repr(test_accounts)
-    assert all(a.address in actual for a in test_accounts)
+def test_test_accounts_repr(accounts, config):
+    actual = repr(accounts)
+    assert config.get_config("test").hd_path in actual
 
 
 def test_account_comparison_to_non_account(core_account):
@@ -426,17 +629,26 @@ def test_account_comparison_to_non_account(core_account):
     assert core_account != "foo"
 
 
-def test_create_account(test_accounts):
-    length_at_start = len(test_accounts)
-    created_acc = test_accounts.generate_test_account()
+def test_create_account(accounts):
+    length_at_start = len(accounts)
+    created_account = accounts.generate_test_account()
 
-    assert isinstance(created_acc, TestAccount)
-    assert created_acc.index == length_at_start
+    assert isinstance(created_account, TestAccount)
+    assert created_account.index == length_at_start
 
-    second_created_acc = test_accounts.generate_test_account()
+    length_at_start = len(accounts)
+    second_created_account = accounts.generate_test_account()
+    assert len(accounts) == length_at_start + 1
 
-    assert created_acc.address != second_created_acc.address
-    assert second_created_acc.index == created_acc.index + 1
+    assert created_account.address != second_created_account.address
+    assert second_created_account.index == created_account.index + 1
+
+    # Last index should now refer to the last-created account.
+    last_idx_acct = accounts[-1]
+    assert last_idx_acct.index == second_created_account.index
+    assert last_idx_acct.address == second_created_account.address
+    assert last_idx_acct.address != accounts[0].address
+    assert last_idx_acct.address != created_account.address
 
 
 def test_dir(core_account):
@@ -462,35 +674,43 @@ def test_is_not_contract(owner, keyfile_account):
     assert not keyfile_account.is_contract
 
 
-def test_using_different_hd_path(test_accounts, temp_config):
+def test_using_different_hd_path(accounts, project, eth_tester_provider):
     test_config = {
         "test": {
-            "hd_path": "m/44'/60'/0'/0/{}",
+            "hd_path": "m/44'/60'/0/0",
         }
     }
 
-    old_first_account = test_accounts[0]
-    with temp_config(test_config):
-        new_first_account = test_accounts[0]
-        assert old_first_account.address != new_first_account.address
+    old_address = accounts[0].address
+    original_settings = eth_tester_provider.settings.model_dump(by_alias=True)
+    with project.temp_config(**test_config):
+        eth_tester_provider.update_settings(test_config["test"])
+        new_address = accounts[0].address
+
+    eth_tester_provider.update_settings(original_settings)
+    assert old_address != new_address
 
 
-def test_using_random_mnemonic(test_accounts, temp_config):
-    test_config = {
-        "test": {
-            "mnemonic": "test_mnemonic_for_ape",
-        }
-    }
+def test_using_random_mnemonic(accounts, project, eth_tester_provider):
+    mnemonic = "candy maple cake sugar pudding cream honey rich smooth crumble sweet treat"
+    test_config = {"test": {"mnemonic": mnemonic}}
 
-    old_first_account = test_accounts[0]
-    with temp_config(test_config):
-        new_first_account = test_accounts[0]
-        assert old_first_account.address != new_first_account.address
+    old_address = accounts[0].address
+    original_settings = eth_tester_provider.settings.model_dump(by_alias=True)
+    with project.temp_config(**test_config):
+        eth_tester_provider.update_settings(test_config["test"])
+        new_address = accounts[0].address
+
+    eth_tester_provider.update_settings(original_settings)
+    assert old_address != new_address
 
 
-def test_iter_test_accounts(test_accounts):
-    actual = list(iter(test_accounts))
-    assert len(actual) == len(test_accounts)
+def test_iter_test_accounts(accounts):
+    accounts.reset()
+    accounts = list(iter(accounts))
+    actual = len(accounts)
+    expected = len(accounts)
+    assert actual == expected
 
 
 def test_declare(contract_container, sender):
@@ -513,8 +733,8 @@ def test_prepare_transaction_using_auto_gas(sender, ethereum, tx_type):
     original_limit = ethereum.config.local.gas_limit
 
     try:
-        ethereum.config.local.gas_limit = auto_gas
         clear_network_property_cached()
+        ethereum.config.local.gas_limit = auto_gas
         assert ethereum.local.gas_limit == auto_gas, "Setup failed - auto gas not set."
 
         # NOTE: Must create tx _after_ setting network gas value.
@@ -565,3 +785,196 @@ def test_prepare_transaction_and_call_using_max_gas(tx_type, ethereum, sender, e
 
     actual = sender.call(tx)
     assert not actual.failed
+
+
+def test_public_key(runner, keyfile_account):
+    with runner.isolation(input=f"{PASSPHRASE}\ny\n"):
+        assert isinstance(keyfile_account.public_key, HexBytes)
+
+
+def test_load_public_key_from_keyfile(runner, keyfile_account):
+    with runner.isolation(input=f"{PASSPHRASE}\ny\n"):
+        assert isinstance(keyfile_account.public_key, HexBytes)
+
+        assert (
+            to_hex(keyfile_account.public_key)
+            == "0x8318535b54105d4a7aae60c08fc45f9687181b4fdfc625bd1a753fa7397fed753547f11ca8696646f2f3acb08e31016afac23e630c5d11f59f61fef57b0d2aa5"  # noqa: 501
+        )
+        # no need for password when loading from the keyfile
+        assert keyfile_account.public_key
+
+
+def test_generate_account(delete_account_after):
+    alias = "gentester"
+    with delete_account_after(alias):
+        account, mnemonic = generate_account(alias, PASSPHRASE)
+        assert len(mnemonic.split(" ")) == 12
+        assert isinstance(account, KeyfileAccount)
+        assert account.alias == alias
+        assert account.locked is True
+        account.unlock(PASSPHRASE)
+        assert account.locked is False
+
+
+def test_generate_account_invalid_alias(delete_account_after):
+    with pytest.raises(AccountsError, match="Longer aliases cannot be hex strings."):
+        generate_account(
+            "3fbc0ce3e71421b94f7ff4e753849c540dec9ade57bad60ebbc521adcbcbc024", "asdf1234"
+        )
+
+    with pytest.raises(AccountsError, match="Alias must be a str"):
+        # Testing an invalid type as arg, so ignoring
+        generate_account(b"imma-bytestr", "asdf1234")  # type: ignore
+
+    used_alias = "used"
+    with delete_account_after(used_alias):
+        generate_account(used_alias, "qwerty1")
+        with pytest.raises(AliasAlreadyInUseError):
+            generate_account(used_alias, "asdf1234")
+
+
+def test_generate_account_invalid_passphrase():
+    with pytest.raises(AccountsError, match="Account file encryption passphrase must be provided."):
+        generate_account("invalid-passphrase", "")
+
+    with pytest.raises(AccountsError, match="Account file encryption passphrase must be provided."):
+        generate_account("invalid-passphrase", b"bytestring")  # type: ignore
+
+
+def test_generate_account_insecure_passphrase(delete_account_after):
+    short_alias = "shortaccount"
+    with delete_account_after(short_alias):
+        with pytest.warns(UserWarning, match="short"):
+            generate_account(short_alias, "short")
+
+    simple_alias = "simpleaccount"
+    with delete_account_after(simple_alias):
+        with pytest.warns(UserWarning, match="simple"):
+            generate_account(simple_alias, "simple")
+
+
+def test_import_account_from_mnemonic(delete_account_after):
+    alias = "iafmtester"
+    with delete_account_after(alias):
+        account = import_account_from_mnemonic(alias, PASSPHRASE, MNEMONIC)
+        assert isinstance(account, KeyfileAccount)
+        assert account.alias == alias
+        assert account.address == "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+        assert account.locked is True
+        account.unlock(PASSPHRASE)
+        assert account.locked is False
+
+
+def test_import_account_from_mnemonic_invalid_alias(delete_account_after):
+    with pytest.raises(AccountsError, match="Longer aliases cannot be hex strings."):
+        import_account_from_mnemonic(
+            "3fbc0ce3e71421b94f7ff4e753849c540dec9ade57bad60ebbc521adcbcbc024", "asdf1234", MNEMONIC
+        )
+
+    with pytest.raises(AccountsError, match="Alias must be a str"):
+        # Testing an invalid type as arg, so ignoring
+        import_account_from_mnemonic(b"imma-bytestr", "asdf1234", MNEMONIC)  # type: ignore
+
+    used_alias = "iamfused"
+    with delete_account_after(used_alias):
+        import_account_from_mnemonic(used_alias, "qwerty1", MNEMONIC)
+        with pytest.raises(AliasAlreadyInUseError):
+            import_account_from_mnemonic(used_alias, "asdf1234", MNEMONIC)
+
+
+def test_import_account_from_mnemonic_invalid_passphrase():
+    with pytest.raises(AccountsError, match="Account file encryption passphrase must be provided."):
+        import_account_from_mnemonic("invalid-passphrase", "", MNEMONIC)
+
+    with pytest.raises(AccountsError, match="Account file encryption passphrase must be provided."):
+        import_account_from_mnemonic("invalid-passphrase", b"bytestring", MNEMONIC)  # type: ignore
+
+
+def test_import_account_from_mnemonic_insecure_passphrase(delete_account_after):
+    short_alias = "iafmshortaccount"
+    with delete_account_after(short_alias):
+        with pytest.warns(UserWarning, match="short"):
+            import_account_from_mnemonic(short_alias, "short", MNEMONIC)
+
+    simple_alias = "iafmsimpleaccount"
+    with delete_account_after(simple_alias):
+        with pytest.warns(UserWarning, match="simple"):
+            import_account_from_mnemonic(simple_alias, "simple", MNEMONIC)
+
+
+def test_import_account_from_private_key(delete_account_after):
+    alias = "iafpktester"
+    with delete_account_after(alias):
+        account = import_account_from_private_key(alias, PASSPHRASE, PRIVATE_KEY)
+        assert isinstance(account, KeyfileAccount)
+        assert account.alias == alias
+        assert account.address == "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+        assert account.locked is True
+        account.unlock(PASSPHRASE)
+        assert account.locked is False
+
+
+def test_import_account_from_private_key_invalid_alias(delete_account_after):
+    with pytest.raises(AccountsError, match="Longer aliases cannot be hex strings."):
+        import_account_from_private_key(
+            "3fbc0ce3e71421b94f7ff4e753849c540dec9ade57bad60ebbc521adcbcbc024",
+            "asdf1234",
+            PRIVATE_KEY,
+        )
+
+    with pytest.raises(AccountsError, match="Alias must be a str"):
+        # Testing an invalid type as arg, so ignoring
+        import_account_from_private_key(b"imma-bytestr", "asdf1234", PRIVATE_KEY)  # type: ignore
+
+    used_alias = "iafpkused"
+    with delete_account_after(used_alias):
+        import_account_from_private_key(used_alias, "qwerty1", PRIVATE_KEY)
+        with pytest.raises(AliasAlreadyInUseError):
+            import_account_from_private_key(used_alias, "asdf1234", PRIVATE_KEY)
+
+
+def test_import_account_from_private_key_invalid_passphrase():
+    with pytest.raises(AccountsError, match="Account file encryption passphrase must be provided."):
+        import_account_from_private_key("invalid-passphrase", "", PRIVATE_KEY)
+
+    with pytest.raises(AccountsError, match="Account file encryption passphrase must be provided."):
+        import_account_from_private_key(
+            "invalid-passphrase", b"bytestring", PRIVATE_KEY  # type: ignore
+        )
+
+
+def test_import_account_from_private_key_insecure_passphrase(delete_account_after):
+    short_alias = "iafpkshortaccount"
+    with delete_account_after(short_alias):
+        with pytest.warns(UserWarning, match="short"):
+            import_account_from_private_key(short_alias, "short", PRIVATE_KEY)
+
+    simple_alias = "iafpksimpleaccount"
+    with delete_account_after(simple_alias):
+        with pytest.warns(UserWarning, match="simple"):
+            import_account_from_private_key(simple_alias, "simple", PRIVATE_KEY)
+
+
+def test_load(account_manager, keyfile_account):
+    account = account_manager.load(keyfile_account.alias)
+    assert account == keyfile_account
+
+
+def test_get_deployment_address(owner, vyper_contract_container):
+    deployment_address_1 = owner.get_deployment_address()
+    deployment_address_2 = owner.get_deployment_address(nonce=owner.nonce + 1)
+    instance_1 = owner.deploy(vyper_contract_container, 490)
+    assert instance_1.address == deployment_address_1
+    instance_2 = owner.deploy(vyper_contract_container, 490)
+    assert instance_2.address == deployment_address_2
+
+
+def test_repr(account_manager):
+    """
+    NOTE: __repr__ should be simple and fast!
+      Previously, we showed the repr of all the accounts.
+      That was a bad idea, as that can be very unnecessarily slow.
+      Hence, this test exists to ensure care is taken.
+    """
+    actual = repr(account_manager)
+    assert actual == "<AccountManager>"

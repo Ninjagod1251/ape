@@ -1,225 +1,33 @@
-from itertools import chain, tee
+from collections.abc import Iterator
+from itertools import chain
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Set, Union
+from typing import TYPE_CHECKING, Optional, Union
 
-from ethpm_types import ASTNode, BaseModel, ContractType, HexBytes
-from ethpm_types.ast import SourceLocation
-from ethpm_types.source import Closure, Content, Function, SourceStatement, Statement
-from evm_trace.gas import merge_reports
-from rich.table import Table
-from rich.tree import Tree
+from eth_pydantic_types import HexBytes
+from ethpm_types import ASTNode, BaseModel
+from ethpm_types.source import (
+    Closure,
+    Content,
+    ContractSource,
+    Function,
+    SourceStatement,
+    Statement,
+)
+from pydantic import RootModel
+from pydantic.dataclasses import dataclass
 
-from ape._pydantic_compat import Field
-from ape.types.address import AddressType
-from ape.utils.basemodel import BaseInterfaceModel
-from ape.utils.misc import is_evm_precompile, is_zero_hex
-from ape.utils.trace import _exclude_gas, parse_as_str, parse_gas_table, parse_rich_tree
+from ape.utils.misc import log_instead_of_fail
 
 if TYPE_CHECKING:
-    from ape.types import ContractFunctionPath
+    from ethpm_types.ast import SourceLocation
+
+    from ape.api.trace import TraceAPI
 
 
-GasReport = Dict[str, Dict[str, List[int]]]
+GasReport = dict[str, dict[str, list[int]]]
 """
 A gas report in Ape.
 """
-
-
-class CallTreeNode(BaseInterfaceModel):
-    contract_id: str
-    """
-    The identifier representing the contract in this node.
-    A non-enriched identifier is an address; a more enriched
-    identifier is a token symbol or contract type name.
-    """
-
-    method_id: Optional[str] = None
-    """
-    The identifier representing the method in this node.
-    A non-enriched identifier is a method selector.
-    An enriched identifier is method signature.
-    """
-
-    txn_hash: Optional[str] = None
-    """
-    The transaction hash, if known and/or exists.
-    """
-
-    failed: bool = False
-    """
-    ``True`` where this tree represents a failed call.
-    """
-
-    inputs: Optional[Any] = None
-    """
-    The inputs to the call.
-    Non-enriched inputs are raw bytes or values.
-    Enriched inputs are decoded.
-    """
-
-    outputs: Optional[Any] = None
-    """
-    The output to the call.
-    Non-enriched inputs are raw bytes or values.
-    Enriched outputs are decoded.
-    """
-
-    value: Optional[int] = None
-    """
-    The value sent with the call, if applicable.
-    """
-
-    gas_cost: Optional[int] = None
-    """
-    The gas cost of the call, if known.
-    """
-
-    call_type: Optional[str] = None
-    """
-    A str indicating what type of call it is.
-    See ``evm_trace.enums.CallType`` for EVM examples.
-    """
-
-    calls: List["CallTreeNode"] = []
-    """
-    The list of subcalls made by this call.
-    """
-
-    raw: Dict = Field({}, exclude=True, repr=False)
-    """
-    The raw tree, as a dictionary, associated with the call.
-    """
-
-    def __repr__(self) -> str:
-        return parse_as_str(self)
-
-    def __str__(self) -> str:
-        return parse_as_str(self)
-
-    def _repr_pretty_(self, *args, **kwargs):
-        enriched_tree = self.enrich(use_symbol_for_tokens=True)
-        self.chain_manager._reports.show_trace(enriched_tree)
-
-    def enrich(self, **kwargs) -> "CallTreeNode":
-        """
-        Enrich the properties on this call tree using data from contracts
-        and using information about the ecosystem.
-
-        Args:
-            **kwargs: Key-word arguments to pass to
-              :meth:`~ape.api.networks.EcosystemAPI.enrich_calltree`, such as
-              ``use_symbol_for_tokens``.
-
-        Returns:
-            :class:`~ape.types.trace.CallTreeNode`: This call tree node with
-            its properties enriched.
-        """
-
-        return self.provider.network.ecosystem.enrich_calltree(self, **kwargs)
-
-    def add(self, sub_call: "CallTreeNode"):
-        """
-        Add a sub call to this node. This implies this call called the sub-call.
-
-        Args:
-            sub_call (:class:`~ape.types.trace.CallTreeNode`): The sub-call to add.
-        """
-
-        self.calls.append(sub_call)
-
-    def as_rich_tree(self, verbose: bool = False) -> Tree:
-        """
-        Return this object as a ``rich.tree.Tree`` for pretty-printing.
-
-        Returns:
-            ``Tree``
-        """
-
-        return parse_rich_tree(self, verbose=verbose)
-
-    def as_gas_tables(self, exclude: Optional[List["ContractFunctionPath"]] = None) -> List[Table]:
-        """
-        Return this object as list of rich gas tables for pretty printing.
-
-        Args:
-            exclude (Optional[List[:class:`~ape.types.ContractFunctionPath`]]):
-              A list of contract / method combinations to exclude from the gas
-              tables.
-
-        Returns:
-            List[``rich.table.Table``]
-        """
-
-        report = self.get_gas_report(exclude=exclude)
-        return parse_gas_table(report)
-
-    def get_gas_report(self, exclude: Optional[List["ContractFunctionPath"]] = None) -> "GasReport":
-        """
-        Get a unified gas-report of all the calls made in this tree.
-
-        Args:
-            exclude (Optional[List[:class:`~ape.types.ContractFunctionPath`]]):
-              A list of contract / method combinations to exclude from the gas
-              tables.
-
-        Returns:
-            :class:`~ape.types.trace.GasReport`
-        """
-
-        exclusions = exclude or []
-        if (
-            not self.contract_id
-            or not self.method_id
-            or _exclude_gas(exclusions, self.contract_id, self.method_id)
-        ):
-            return merge_reports(*(c.get_gas_report(exclude) for c in self.calls))
-
-        elif not is_zero_hex(self.method_id) and not is_evm_precompile(self.method_id):
-            reports = [
-                *[c.get_gas_report(exclude) for c in self.calls],
-                {
-                    self.contract_id: {
-                        self.method_id: [self.gas_cost] if self.gas_cost is not None else []
-                    }
-                },
-            ]
-            return merge_reports(*reports)
-
-        return merge_reports(*(c.get_gas_report(exclude) for c in self.calls))
-
-
-class TraceFrame(BaseInterfaceModel):
-    """
-    A low-level data structure modeling a transaction trace frame
-    from the Geth RPC ``debug_traceTransaction``.
-    """
-
-    pc: int
-    """Program counter."""
-
-    op: str
-    """Opcode."""
-
-    gas: int
-    """Remaining gas."""
-
-    gas_cost: int
-    """The cost to execute this opcode."""
-
-    depth: int
-    """
-    The number of external jumps away the initially called contract (starts at 0).
-    """
-
-    contract_address: Optional[AddressType] = None
-    """
-    The contract address, if this is a call trace frame.
-    """
-
-    raw: Dict = Field({}, exclude=True, repr=False)
-    """
-    The raw trace frame from the provider.
-    """
 
 
 class ControlFlow(BaseModel):
@@ -227,7 +35,7 @@ class ControlFlow(BaseModel):
     A collection of linear source nodes up until a jump.
     """
 
-    statements: List[Statement]
+    statements: list[Statement]
     """
     The source node statements.
     """
@@ -252,6 +60,7 @@ class ControlFlow(BaseModel):
     def __str__(self) -> str:
         return f"{self.source_header}\n{self.format()}"
 
+    @log_instead_of_fail(default="<ControlFlow>")
     def __repr__(self) -> str:
         source_name = f" {self.source_path.name} " if self.source_path is not None else " "
         representation = f"<control path,{source_name}{self.closure.name}"
@@ -282,7 +91,7 @@ class ControlFlow(BaseModel):
         return len(self.statements)
 
     @property
-    def source_statements(self) -> List[SourceStatement]:
+    def source_statements(self) -> list[SourceStatement]:
         """
         All statements coming directly from a contract's source.
         Excludes implicit-compiler statements.
@@ -306,7 +115,7 @@ class ControlFlow(BaseModel):
         return stmts[0].ws_begin_lineno if stmts else None
 
     @property
-    def line_numbers(self) -> List[int]:
+    def line_numbers(self) -> list[int]:
         """
         The list of all line numbers as part of this node.
         """
@@ -321,11 +130,11 @@ class ControlFlow(BaseModel):
 
     @property
     def content(self) -> Content:
-        result: Dict[int, str] = {}
+        result: dict[int, str] = {}
         for node in self.source_statements:
-            result = {**result, **node.content.__root__}
+            result = {**result, **node.content.root}
 
-        return Content(__root__=result)
+        return Content(root=result)
 
     @property
     def source_header(self) -> str:
@@ -345,8 +154,8 @@ class ControlFlow(BaseModel):
         return stmts[-1].end_lineno if stmts else None
 
     @property
-    def pcs(self) -> Set[int]:
-        full_set: Set[int] = set()
+    def pcs(self) -> set[int]:
+        full_set: set[int] = set()
         for stmt in self.statements:
             full_set |= stmt.pcs
 
@@ -354,8 +163,8 @@ class ControlFlow(BaseModel):
 
     def extend(
         self,
-        location: SourceLocation,
-        pcs: Optional[Set[int]] = None,
+        location: "SourceLocation",
+        pcs: Optional[set[int]] = None,
         ws_start: Optional[int] = None,
     ):
         """
@@ -367,7 +176,7 @@ class ControlFlow(BaseModel):
         Args:
             location (SourceLocation): The location of the content, in the form
               (lineno, col_offset, end_lineno, end_coloffset).
-            pcs (Optional[Set[int]]): The PC values of the statements.
+            pcs (Optional[set[int]]): The PC values of the statements.
             ws_start (Optional[int]): Optionally provide a white-space starting point
               to back-fill.
         """
@@ -409,7 +218,7 @@ class ControlFlow(BaseModel):
         new_lines = {no: ln.rstrip() for no, ln in content.items() if no >= content_start}
         if new_lines:
             # Add the next statement in this sequence.
-            content = Content(__root__=new_lines)
+            content = Content(root=new_lines)
             statement = SourceStatement(asts=asts, content=content, pcs=pcs)
             self.statements.append(statement)
 
@@ -471,67 +280,57 @@ class ControlFlow(BaseModel):
         content_dict = {}
         for ast in next_stmt_asts:
             sub_content = function.get_content(ast.line_numbers)
-            content_dict = {**sub_content.__root__}
+            content_dict = {**sub_content.root}
 
         if not content_dict:
             return None
 
         sorted_dict = {k: content_dict[k] for k in sorted(content_dict)}
-        content = Content(__root__=sorted_dict)
+        content = Content(root=sorted_dict)
         return SourceStatement(asts=next_stmt_asts, content=content)
 
 
-class SourceTraceback(BaseModel):
+class SourceTraceback(RootModel[list[ControlFlow]]):
     """
     A full execution traceback including source code.
     """
 
-    __root__: List[ControlFlow]
-
     @classmethod
-    def create(
-        cls,
-        contract_type: ContractType,
-        trace: Iterator[TraceFrame],
-        data: Union[HexBytes, str],
-    ):
-        trace, second_trace = tee(trace)
-        if not second_trace or not (accessor := next(second_trace, None)):
-            return cls.parse_obj([])
-
-        if not (source_id := contract_type.source_id):
-            return cls.parse_obj([])
-
+    def create(cls, contract_source: ContractSource, trace: "TraceAPI", data: Union[HexBytes, str]):
+        # Use the trace as a 'ManagerAccessMixin'.
+        compilers = trace.compiler_manager
+        source_id = contract_source.source_id
         ext = f".{source_id.split('.')[-1]}"
-        if ext not in accessor.compiler_manager.registered_compilers:
-            return cls.parse_obj([])
+        if ext not in compilers.registered_compilers:
+            return cls.model_validate([])
 
-        compiler = accessor.compiler_manager.registered_compilers[ext]
+        compiler = compilers.registered_compilers[ext]
         try:
-            return compiler.trace_source(contract_type, trace, HexBytes(data))
+            return compiler.trace_source(contract_source, trace, HexBytes(data))
         except NotImplementedError:
-            return cls.parse_obj([])
+            return cls.model_validate([])
 
     def __str__(self) -> str:
         return self.format()
 
+    @log_instead_of_fail(default="<SourceTraceback>")
     def __repr__(self) -> str:
-        return f"<ape.types.SourceTraceback control_paths={len(self.__root__)}>"
+        return f"<ape.types.SourceTraceback control_paths={len(self.root)}>"
 
     def __len__(self) -> int:
-        return len(self.__root__)
+        return len(self.root)
 
     def __iter__(self) -> Iterator[ControlFlow]:  # type: ignore[override]
-        yield from self.__root__
+        yield from self.root
 
     def __getitem__(self, idx: int) -> ControlFlow:
         try:
-            return self.__root__[idx]
+            return self.root[idx]
         except IndexError as err:
             raise IndexError(f"Control flow index '{idx}' out of range.") from err
 
     def __setitem__(self, key, value):
-        return self.__root__.__setitem__(key, value)
+        return self.root.__setitem__(key, value)
 
     @property
     def revert_type(self) -> Optional[str]:
@@ -539,14 +338,13 @@ class SourceTraceback(BaseModel):
         The revert type, such as a builtin-error code or a user dev-message,
         if there is one.
         """
-
         return self.statements[-1].type if self.statements[-1].type != "source" else None
 
     def append(self, __object) -> None:
         """
         Append the given control flow to this one.
         """
-        self.__root__.append(__object)
+        self.root.append(__object)
 
     def extend(self, __iterable) -> None:
         """
@@ -555,50 +353,50 @@ class SourceTraceback(BaseModel):
         if not isinstance(__iterable, SourceTraceback):
             raise TypeError("Can only extend another traceback object.")
 
-        self.__root__.extend(__iterable.__root__)
+        self.root.extend(__iterable.root)
 
     @property
     def last(self) -> Optional[ControlFlow]:
         """
         The last control flow in the traceback, if there is one.
         """
-        return self.__root__[-1] if len(self.__root__) else None
+        return self.root[-1] if len(self.root) else None
 
     @property
-    def execution(self) -> List[ControlFlow]:
+    def execution(self) -> list[ControlFlow]:
         """
         All the control flows in order. Each set of statements in
         a control flow is separated by a jump.
         """
-        return list(self.__root__)
+        return list(self.root)
 
     @property
-    def statements(self) -> List[Statement]:
+    def statements(self) -> list[Statement]:
         """
         All statements from each control flow.
         """
-        return list(chain(*[x.statements for x in self.__root__]))
+        return list(chain(*[x.statements for x in self.root]))
 
     @property
-    def source_statements(self) -> List[SourceStatement]:
+    def source_statements(self) -> list[SourceStatement]:
         """
         All source statements from each control flow.
         """
-        return list(chain(*[x.source_statements for x in self.__root__]))
+        return list(chain(*[x.source_statements for x in self.root]))
 
     def format(self) -> str:
         """
         Get a formatted traceback string for displaying to users.
         """
-        if not len(self.__root__):
+        if not len(self.root):
             # No calls.
             return ""
 
         header = "Traceback (most recent call last)"
         indent = "  "
         last_depth = None
-        segments: List[str] = []
-        for control_flow in reversed(self.__root__):
+        segments: list[str] = []
+        for control_flow in reversed(self.root):
             if last_depth is None or control_flow.depth == last_depth - 1:
                 if control_flow.depth == 0 and len(segments) >= 1:
                     # Ignore 0-layer segments if source code was hit
@@ -644,10 +442,10 @@ class SourceTraceback(BaseModel):
 
     def add_jump(
         self,
-        location: SourceLocation,
+        location: "SourceLocation",
         function: Function,
         depth: int,
-        pcs: Optional[Set[int]] = None,
+        pcs: Optional[set[int]] = None,
         source_path: Optional[Path] = None,
     ):
         """
@@ -658,7 +456,7 @@ class SourceTraceback(BaseModel):
             function (``Function``): The function executing.
             source_path (Optional[``Path``]): The path of the source file.
             depth (int): The depth of the function call in the call tree.
-            pcs (Optional[Set[int]]): The program counter values.
+            pcs (Optional[set[int]]): The program counter values.
             source_path (Optional[``Path``]): The path of the source file.
         """
 
@@ -668,17 +466,17 @@ class SourceTraceback(BaseModel):
             return
 
         pcs = pcs or set()
-        Statement.update_forward_refs()
-        ControlFlow.update_forward_refs()
+        Statement.model_rebuild()
+        ControlFlow.model_rebuild()
         self._add(asts, content, pcs, function, depth, source_path=source_path)
 
-    def extend_last(self, location: SourceLocation, pcs: Optional[Set[int]] = None):
+    def extend_last(self, location: "SourceLocation", pcs: Optional[set[int]] = None):
         """
         Extend the last node with more content.
 
         Args:
             location (``SourceLocation``): The location of the new content.
-            pcs (Optional[Set[int]]): The PC values to add on.
+            pcs (Optional[set[int]]): The PC values to add on.
         """
 
         if not self.last:
@@ -698,10 +496,9 @@ class SourceTraceback(BaseModel):
         self,
         name: str,
         _type: str,
-        compiler_name: str,
         full_name: Optional[str] = None,
         source_path: Optional[Path] = None,
-        pcs: Optional[Set[int]] = None,
+        pcs: Optional[set[int]] = None,
     ):
         """
         A convenience method for appending a control flow that happened
@@ -711,12 +508,10 @@ class SourceTraceback(BaseModel):
         Args:
             name (str): The name of the compiler built-in.
             _type (str): A str describing the type of check.
-            compiler_name (str): The name of the compiler.
             full_name (Optional[str]): A full-name ID.
             source_path (Optional[Path]): The source file related, if there is one.
-            pcs (Optional[Set[int]]): Program counter values mapping to this check.
+            pcs (Optional[set[int]]): Program counter values mapping to this check.
         """
-        # TODO: Assess if compiler_name is needed or get rid of in v0.7.
         pcs = pcs or set()
         closure = Closure(name=name, full_name=full_name or name)
         depth = self.last.depth - 1 if self.last else 0
@@ -728,9 +523,9 @@ class SourceTraceback(BaseModel):
 
     def _add(
         self,
-        asts: List[ASTNode],
+        asts: list[ASTNode],
         content: Content,
-        pcs: Set[int],
+        pcs: set[int],
         function: Function,
         depth: int,
         source_path: Optional[Path] = None,
@@ -740,3 +535,28 @@ class SourceTraceback(BaseModel):
             statements=[statement], source_path=source_path, closure=function, depth=depth
         )
         self.append(exec_sequence)
+
+
+@dataclass
+class ContractFunctionPath:
+    """
+    Useful for identifying a method in a contract.
+    """
+
+    contract_name: str
+    method_name: Optional[str] = None
+
+    @classmethod
+    def from_str(cls, value: str) -> "ContractFunctionPath":
+        if ":" in value:
+            contract_name, method_name = value.split(":")
+            return cls(contract_name=contract_name, method_name=method_name)
+
+        return cls(contract_name=value)
+
+    def __str__(self) -> str:
+        return f"{self.contract_name}:{self.method_name}"
+
+    @log_instead_of_fail(default="<ContractFunctionPath>")
+    def __repr__(self) -> str:
+        return f"<{self}>"

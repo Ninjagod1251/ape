@@ -1,13 +1,13 @@
-from typing import Dict, Tuple, cast
+from typing import cast
 
 import pytest
-from ethpm_types import HexBytes
+from eth_pydantic_types import HexBytes
+from ethpm_types import BaseModel
 from ethpm_types.abi import MethodABI
 
-from ape._pydantic_compat import BaseModel
-from ape.types import AddressType
+from ape.types.address import AddressType
 
-ABI = MethodABI.parse_obj(
+ABI = MethodABI.model_validate(
     {
         "type": "function",
         "name": "test",
@@ -64,7 +64,7 @@ def test_encode_structs(data_type, ethereum):
 
 
 def test_encode_structs_as_tuple_with_unconverted(sender, ethereum):
-    normal_data: Tuple = DATA_BY_TYPE_KEY["tuple"]  # type: ignore[assignment]
+    normal_data: tuple = DATA_BY_TYPE_KEY["tuple"]  # type: ignore[assignment]
     data = list(normal_data)
     data[-1] = sender
     actual = ethereum.encode_calldata(ABI, normal_data)
@@ -72,7 +72,7 @@ def test_encode_structs_as_tuple_with_unconverted(sender, ethereum):
 
 
 def test_encode_structs_as_dict_with_unconverted(sender, ethereum):
-    normal_data: Dict = DATA_BY_TYPE_KEY["dict"]  # type: ignore[assignment]
+    normal_data: dict = DATA_BY_TYPE_KEY["dict"]  # type: ignore[assignment]
     data = dict(normal_data)
     data["d"] = sender
     actual = ethereum.encode_calldata(ABI, normal_data)
@@ -81,14 +81,14 @@ def test_encode_structs_as_dict_with_unconverted(sender, ethereum):
 
 def test_encode_structs_as_object_with_unconverted(sender, ethereum):
     normal_data: Struct = DATA_BY_TYPE_KEY["object"]  # type: ignore[assignment]
-    data = normal_data.copy()
+    data = normal_data.model_copy()
     data.d = sender
     actual = ethereum.encode_calldata(ABI, normal_data)
     assert actual == EXPECTED
 
 
 def test_encode_struct_using_dict_with_more_fields(sender, ethereum):
-    normal_data: Dict = DATA_BY_TYPE_KEY["dict"]  # type: ignore[assignment]
+    normal_data: dict = DATA_BY_TYPE_KEY["dict"]  # type: ignore[assignment]
     data = dict(normal_data)
     data["extra"] = "foobar"  # Should be ignored since not in ABI.
     actual = ethereum.encode_calldata(ABI, normal_data)

@@ -1,8 +1,11 @@
+from collections import defaultdict
 from datetime import datetime, timedelta
 
 import pytest
 
-from ape.exceptions import APINotImplementedError, ChainError
+from ape.exceptions import APINotImplementedError, ChainError, UnknownSnapshotError
+from ape.managers.chain import AccountHistory
+from ape.types.address import AddressType
 
 
 def test_snapshot_and_restore(chain, owner, receiver, vyper_contract_instance):
@@ -59,16 +62,30 @@ def test_snapshot_and_restore_unknown_snapshot_id(chain):
     # After restoring to the second ID, the third ID is now invalid.
     chain.restore(snapshot_id_2)
 
-    with pytest.raises(ChainError) as err:
+    with pytest.raises(UnknownSnapshotError) as err:
         chain.restore(snapshot_id_3)
 
     assert "Unknown snapshot ID" in str(err.value)
 
 
 def test_snapshot_and_restore_no_snapshots(chain):
-    chain._snapshots = []  # Ensure empty (gets set in test setup)
+    chain._snapshots = defaultdict(list)  # Ensure empty (gets set in test setup)
     with pytest.raises(ChainError, match="There are no snapshots to revert to."):
         chain.restore()
+
+
+def test_snapshot_and_restore_switched_chains(networks, chain):
+    """
+    Ensuring things work as expected when we switch chains after snapshotting
+    and before restoring.
+    """
+    snapshot = chain.snapshot()
+    # Switch chains.
+    with networks.ethereum.local.use_provider(
+        "test", provider_settings={"chain_id": 11191919191991918223773}
+    ):
+        with pytest.raises(UnknownSnapshotError):
+            chain.restore(snapshot)
 
 
 def test_isolate(chain, vyper_contract_instance, owner):
@@ -81,11 +98,11 @@ def test_isolate(chain, vyper_contract_instance, owner):
         assert vyper_contract_instance.myNumber() == 333
         assert chain.blocks.height == start_head + 1
 
-    assert vyper_contract_instance.myNumber() == number_at_start
     assert chain.blocks.height == start_head
+    assert vyper_contract_instance.myNumber() == number_at_start
 
 
-def test_get_receipt_uses_cache(mocker, eth_tester_provider, chain, vyper_contract_instance, owner):
+def test_history_uses_cache(mocker, eth_tester_provider, chain, vyper_contract_instance, owner):
     expected = vyper_contract_instance.setNumber(3, sender=owner)
     eth = eth_tester_provider.web3.eth
     rpc_spy = mocker.spy(eth, "get_transaction")
@@ -105,12 +122,28 @@ def test_get_receipt_uses_cache(mocker, eth_tester_provider, chain, vyper_contra
     assert rpc_spy.call_count == 1  # Not changed
 
 
-def test_get_receipt_from_history(chain, vyper_contract_instance, owner):
+def test_history_getitem_receipt(chain, vyper_contract_instance, owner):
     expected = vyper_contract_instance.setNumber(3, sender=owner)
     actual = chain.history[expected.txn_hash]
     assert actual.txn_hash == expected.txn_hash
     assert actual.sender == expected.sender
     assert actual.receiver == expected.receiver
+
+
+def test_history_getitem_account(chain, vyper_contract_instance, owner):
+    actual = chain.history[owner.address]
+    assert isinstance(actual, AccountHistory)
+    assert actual.address == owner.address
+
+
+def test_history_getitem_account_ens(mocker, chain, vyper_contract_instance, owner):
+    conversion_spy = mocker.spy(chain.history.conversion_manager, "convert")
+    value = "this will not work, but would if given ens and using ape-ens"
+    expected_err = rf"'{value}' is not a known address or transaction hash\."
+    with pytest.raises(ChainError, match=expected_err):
+        _ = chain.history[value]
+
+    conversion_spy.assert_called_once_with(value, AddressType)
 
 
 def test_set_pending_timestamp(chain):

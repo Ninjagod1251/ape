@@ -5,22 +5,21 @@ import traceback
 from contextlib import contextmanager
 from pathlib import Path
 from runpy import run_module
-from typing import Any, Dict, Union
+from typing import Any, Union
 
 import click
-from click import Command, Context, Option
 
-from ape import project
-from ape.cli import NetworkBoundCommand, network_option, verbosity_option
-from ape.cli.options import _VERBOSITY_VALUES, _create_verbosity_kwargs
+from ape.cli.commands import ConnectedProviderCommand
+from ape.cli.options import _VERBOSITY_VALUES, _create_verbosity_kwargs, verbosity_option
 from ape.exceptions import ApeException, handle_ape_exception
 from ape.logging import logger
-from ape.utils import get_relative_path, use_temp_sys_path
-from ape_console._cli import console
 
 
 @contextmanager
 def use_scripts_sys_path(path: Path):
+    # perf: avoid importing at top of module so `--help` is faster.
+    from ape.utils.os import use_temp_sys_path
+
     # First, ensure there is not an existing scripts module.
     scripts = sys.modules.get("scripts")
     if scripts:
@@ -68,33 +67,43 @@ class ScriptCommand(click.MultiCommand):
         super().__init__(*args, **kwargs)
         self._namespace = {}
         self._command_called = None
+        self._has_warned_missing_hook: set[Path] = set()
 
-    def invoke(self, ctx: Context) -> Any:
+    def invoke(self, ctx: click.Context) -> Any:
+        from ape.utils.basemodel import ManagerAccessMixin as access
+
         try:
             return super().invoke(ctx)
         except Exception as err:
             if ctx.params["interactive"]:
                 # Print the exception trace and then launch the console
                 # Attempt to use source-traceback style printing.
-                if not isinstance(err, ApeException) or not handle_ape_exception(
-                    err, [ctx.obj.project_manager.path]
+                network_value = (
+                    ctx.params.get("network") or access.network_manager.default_ecosystem.name
+                )
+                with access.network_manager.parse_network_choice(
+                    network_value, disconnect_on_exit=False
                 ):
-                    err_info = traceback.format_exc()
-                    click.echo(err_info)
+                    path = ctx.obj.local_project.path
+                    assert isinstance(path, Path)  # For mypy.
+                    if not isinstance(err, ApeException) or not handle_ape_exception(err, (path,)):
+                        err_info = traceback.format_exc()
+                        click.echo(err_info)
 
-                self._launch_console()
+                    self._launch_console()
             else:
                 # Don't handle error - raise exception as normal.
                 raise
 
     def _get_command(self, filepath: Path) -> Union[click.Command, click.Group, None]:
-        relative_filepath = get_relative_path(filepath, project.path)
+        scripts_folder = Path.cwd() / "scripts"
+        relative_filepath = filepath.relative_to(scripts_folder)
 
         # First load the code module by compiling it
         # NOTE: This does not execute the module
         logger.debug(f"Parsing module: {relative_filepath}")
         try:
-            code = compile(filepath.read_text(), filepath, "exec")
+            code = compile(filepath.read_text(encoding="utf8"), filepath, "exec")
         except SyntaxError as e:
             logger.error_from_exception(e, f"Exception while parsing script: {relative_filepath}")
             return None  # Prevents stalling scripts
@@ -115,14 +124,14 @@ class ScriptCommand(click.MultiCommand):
 
             self._namespace[filepath.stem] = cli_ns
             cli_obj = cli_ns["cli"]
-            if not isinstance(cli_obj, Command):
+            if not isinstance(cli_obj, click.Command):
                 logger.warning("Found `cli()` method but it is not a click command.")
                 return None
 
             params = [getattr(x, "name", None) for x in cli_obj.params]
             if "verbosity" not in params:
                 option_kwargs = _create_verbosity_kwargs()
-                option = Option(_VERBOSITY_VALUES, **option_kwargs)
+                option = click.Option(_VERBOSITY_VALUES, **option_kwargs)
                 cli_obj.params.append(option)
 
             cli_obj.name = filepath.stem if cli_obj.name in ("cli", "", None) else cli_obj.name
@@ -132,11 +141,10 @@ class ScriptCommand(click.MultiCommand):
             logger.debug(f"Found 'main' method in script: {relative_filepath}")
 
             @click.command(
-                cls=NetworkBoundCommand,
+                cls=ConnectedProviderCommand,
                 short_help=f"Run '{relative_filepath}:main'",
                 name=relative_filepath.stem,
             )
-            @network_option()
             @verbosity_option()
             def call(network):
                 _ = network  # Downstream might use this
@@ -149,16 +157,16 @@ class ScriptCommand(click.MultiCommand):
             return call
 
         else:
-            logger.warning(f"No 'main' method or 'cli' command in script: {relative_filepath}")
+            if relative_filepath not in self._has_warned_missing_hook:
+                logger.warning(f"No 'main' method or 'cli' command in script: {relative_filepath}")
+                self._has_warned_missing_hook.add(relative_filepath)
 
             @click.command(
-                cls=NetworkBoundCommand,
+                cls=ConnectedProviderCommand,
                 short_help=f"Run '{relative_filepath}:main'",
                 name=relative_filepath.stem,
             )
-            @network_option()
-            def call(network):
-                _ = network  # Downstream might use this
+            def call():
                 with use_scripts_sys_path(filepath.parent.parent):
                     empty_ns = run_script_module(filepath)
 
@@ -168,14 +176,17 @@ class ScriptCommand(click.MultiCommand):
             return call
 
     @property
-    def commands(self) -> Dict[str, Union[click.Command, click.Group]]:
-        if not project.scripts_folder.is_dir():
+    def commands(self) -> dict[str, Union[click.Command, click.Group]]:
+        # perf: Don't reference `.local_project.scripts_folder` here;
+        #   it's too slow when doing just doing `--help`.
+        scripts_folder = Path.cwd() / "scripts"
+        if not scripts_folder.is_dir():
             return {}
 
-        return self._get_cli_commands(project.scripts_folder)
+        return self._get_cli_commands(scripts_folder)
 
-    def _get_cli_commands(self, base_path: Path) -> Dict:
-        commands: Dict[str, Command] = {}
+    def _get_cli_commands(self, base_path: Path) -> dict:
+        commands: dict[str, click.Command] = {}
 
         for filepath in base_path.iterdir():
             if filepath.stem.startswith("_"):
@@ -188,6 +199,7 @@ class ScriptCommand(click.MultiCommand):
                 subcommands = self._get_cli_commands(filepath)
                 for subcommand in subcommands.values():
                     group.add_command(subcommand)
+
                 commands[filepath.stem] = group
 
             if filepath.suffix == ".py":
@@ -210,15 +222,19 @@ class ScriptCommand(click.MultiCommand):
 
         # NOTE: don't return anything so Click displays proper error
 
-    def result_callback(self, result, interactive):
+    def result_callback(self, result, interactive: bool):  # type: ignore[override]
         if interactive:
             return self._launch_console()
 
         return result
 
     def _launch_console(self):
+        from ape.utils.basemodel import ManagerAccessMixin as access
+
         trace = inspect.trace()
-        trace_frames = [x for x in trace if x.filename.startswith(str(project.scripts_folder))]
+        trace_frames = [
+            x for x in trace if x.filename.startswith(str(access.local_project.scripts_folder))
+        ]
         if not trace_frames:
             # Error from Ape internals; avoid launching console.
             sys.exit(1)
@@ -239,7 +255,9 @@ class ScriptCommand(click.MultiCommand):
             if frame:
                 del frame
 
-        return console(project=project, extra_locals=extra_locals, embed=True)
+        from ape_console._cli import console
+
+        return console(project=access.local_project, extra_locals=extra_locals, embed=True)
 
 
 @click.command(

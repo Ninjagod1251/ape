@@ -1,5 +1,8 @@
 import contextlib
-from typing import ContextManager, Dict, Generator, Iterator, List, Optional, Type, Union
+from collections.abc import Generator, Iterator
+from contextlib import AbstractContextManager as ContextManager
+from functools import cached_property, singledispatchmethod
+from typing import Optional, Union
 
 from eth_utils import is_hex
 
@@ -10,18 +13,19 @@ from ape.api.accounts import (
     TestAccountAPI,
     TestAccountContainerAPI,
 )
-from ape.types import AddressType
-from ape.utils import ManagerAccessMixin, cached_property, singledispatchmethod
+from ape.exceptions import AccountsError, ConversionError
+from ape.managers.base import BaseManager
+from ape.types.address import AddressType
+from ape.utils.basemodel import ManagerAccessMixin
+from ape.utils.misc import log_instead_of_fail
 
-from .base import BaseManager
-
-_DEFAULT_SENDERS: List[AccountAPI] = []
+_DEFAULT_SENDERS: list[AccountAPI] = []
 
 
 @contextlib.contextmanager
 def _use_sender(
     account: Union[AccountAPI, TestAccountAPI]
-) -> Generator[AccountAPI, TestAccountAPI, None]:
+) -> "Generator[AccountAPI, TestAccountAPI, None]":
     try:
         _DEFAULT_SENDERS.append(account)
         yield account
@@ -32,23 +36,29 @@ def _use_sender(
 class TestAccountManager(list, ManagerAccessMixin):
     __test__ = False
 
-    _impersonated_accounts: Dict[AddressType, ImpersonatedAccount] = {}
+    _impersonated_accounts: dict[AddressType, ImpersonatedAccount] = {}
+    _accounts_by_index: dict[int, AccountAPI] = {}
 
+    @log_instead_of_fail(default="<TestAccountManager>")
     def __repr__(self) -> str:
-        accounts_str = ", ".join([a.address for a in self.accounts])
-        return f"[{accounts_str}]"
+        return f"<apetest-wallet {self.hd_path}>"
 
     @cached_property
-    def containers(self) -> Dict[str, TestAccountContainerAPI]:
-        containers = {}
-        account_types = [
-            t for t in self.plugin_manager.account_types if issubclass(t[1][1], TestAccountAPI)
-        ]
-        for plugin_name, (container_type, account_type) in account_types:
-            # Pydantic validation won't allow passing None for data_folder/required attr
-            containers[plugin_name] = container_type(data_folder="", account_type=account_type)
+    def containers(self) -> dict[str, TestAccountContainerAPI]:
+        account_types = filter(
+            lambda t: issubclass(t[1][1], TestAccountAPI), self.plugin_manager.account_types
+        )
+        return {
+            plugin_name: container_type(name=plugin_name, account_type=account_type)
+            for plugin_name, (container_type, account_type) in account_types
+        }
 
-        return containers
+    @property
+    def hd_path(self) -> str:
+        """
+        The HD path used for generating the test accounts.
+        """
+        return self.config_manager.get_config("test").hd_path
 
     @property
     def accounts(self) -> Iterator[AccountAPI]:
@@ -61,7 +71,7 @@ class TestAccountManager(list, ManagerAccessMixin):
                 yield account.alias
 
     def __len__(self) -> int:
-        return len(list(self.accounts))
+        return sum(len(c) for c in self.containers.values())
 
     def __iter__(self) -> Iterator[AccountAPI]:
         yield from self.accounts
@@ -74,11 +84,13 @@ class TestAccountManager(list, ManagerAccessMixin):
     def __getitem_int(self, account_id: int):
         if account_id < 0:
             account_id = len(self) + account_id
-        for idx, account in enumerate(self.accounts):
-            if account_id == idx:
-                return account
 
-        raise IndexError(f"No account at index '{account_id}'.")
+        if account_id in self._accounts_by_index:
+            return self._accounts_by_index[account_id]
+
+        account = self.containers["test"].get_test_account(account_id)
+        self._accounts_by_index[account_id] = account
+        return account
 
     @__getitem__.register
     def __getitem_slice(self, account_id: slice):
@@ -93,44 +105,82 @@ class TestAccountManager(list, ManagerAccessMixin):
 
     @__getitem__.register
     def __getitem_str(self, account_str: str):
-        account_id = self.conversion_manager.convert(account_str, AddressType)
+        message_fmt = "No account with {} '{}'."
+        try:
+            account_id = self.conversion_manager.convert(account_str, AddressType)
+        except ConversionError as err:
+            message = message_fmt.format("ID", account_str)
+            raise KeyError(message) from err
 
         for account in self.accounts:
             if account.address == account_id:
                 return account
 
-        can_impersonate = False
-        err_message = f"No account with address '{account_id}'."
         try:
-            if self.network_manager.active_provider:
-                can_impersonate = self.provider.unlock_account(account_id)
-            # else: fall through to `IndexError`
-        except NotImplementedError as err:
-            raise IndexError(
-                f"Your provider does not support impersonating accounts:\n{err_message}"
-            ) from err
-
-        if not can_impersonate:
-            raise IndexError(err_message)
-
-        if account_id not in self._impersonated_accounts:
-            acct = ImpersonatedAccount(raw_address=account_id)
-            self._impersonated_accounts[account_id] = acct
-
-        return self._impersonated_accounts[account_id]
+            return self.impersonate_account(account_id)
+        except AccountsError as err:
+            err_message = message_fmt.format("address", account_id)
+            raise KeyError(f"{str(err).rstrip('.')}:\n{err_message}") from err
 
     def __contains__(self, address: AddressType) -> bool:  # type: ignore
         return any(address in container for container in self.containers.values())
 
+    def impersonate_account(self, address: AddressType) -> ImpersonatedAccount:
+        """
+        Impersonate an account for testing purposes.
+
+        Args:
+            address (AddressType): The address to impersonate.
+        """
+        try:
+            result = self.provider.unlock_account(address)
+        except NotImplementedError as err:
+            raise AccountsError("Your provider does not support impersonating accounts.") from err
+
+        if result:
+            if address in self._impersonated_accounts:
+                return self._impersonated_accounts[address]
+
+            account = ImpersonatedAccount(raw_address=address)
+            self._impersonated_accounts[address] = account
+            return account
+
+        raise AccountsError(f"Unable to unlocked account '{address}'.")
+
+    def stop_impersonating(self, address: AddressType):
+        """
+        End the impersonating of an account, if it is being impersonated.
+
+        Args:
+            address (AddressType): The address to stop impersonating.
+        """
+        if address in self._impersonated_accounts:
+            del self._impersonated_accounts[address]
+
+        try:
+            self.provider.relock_account(address)
+        except NotImplementedError:
+            pass
+
     def generate_test_account(self, container_name: str = "test") -> TestAccountAPI:
         return self.containers[container_name].generate_account()
 
-    def use_sender(self, account_id: Union[TestAccountAPI, AddressType, int]) -> ContextManager:
-        if not isinstance(account_id, TestAccountAPI):
-            account = self[account_id]
-        else:
-            account = account_id
+    def use_sender(self, account_id: Union[TestAccountAPI, AddressType, int]) -> "ContextManager":
+        account = account_id if isinstance(account_id, TestAccountAPI) else self[account_id]
         return _use_sender(account)
+
+    def init_test_account(
+        self, index: int, address: AddressType, private_key: str
+    ) -> "TestAccountAPI":
+        container = self.containers["test"]
+        return container.init_test_account(  # type: ignore[attr-defined]
+            index, address, private_key
+        )
+
+    def reset(self):
+        self._accounts_by_index = {}
+        for container in self.containers.values():
+            container.reset()
 
 
 class AccountManager(BaseManager):
@@ -149,12 +199,14 @@ class AccountManager(BaseManager):
         my_accounts = accounts.load("dev")
     """
 
+    _alias_to_account_cache: dict[str, AccountAPI] = {}
+
     @property
     def default_sender(self) -> Optional[AccountAPI]:
         return _DEFAULT_SENDERS[-1] if _DEFAULT_SENDERS else None
 
     @cached_property
-    def containers(self) -> Dict[str, AccountContainerAPI]:
+    def containers(self) -> dict[str, AccountContainerAPI]:
         """
         A dict of all :class:`~ape.api.accounts.AccountContainerAPI` instances
         across all installed plugins.
@@ -162,7 +214,6 @@ class AccountManager(BaseManager):
         Returns:
             dict[str, :class:`~ape.api.accounts.AccountContainerAPI`]
         """
-
         containers = {}
         data_folder = self.config_manager.DATA_FOLDER
         data_folder.mkdir(exist_ok=True)
@@ -171,11 +222,7 @@ class AccountManager(BaseManager):
             if issubclass(account_type, TestAccountAPI):
                 continue
 
-            accounts_folder = data_folder / plugin_name
-            accounts_folder.mkdir(exist_ok=True)
-            containers[plugin_name] = container_type(
-                data_folder=accounts_folder, account_type=account_type
-            )
+            containers[plugin_name] = container_type(name=plugin_name, account_type=account_type)
 
         return containers
 
@@ -194,16 +241,16 @@ class AccountManager(BaseManager):
         for container in self.containers.values():
             yield from container.aliases
 
-    def get_accounts_by_type(self, type_: Type[AccountAPI]) -> List[AccountAPI]:
+    def get_accounts_by_type(self, type_: type[AccountAPI]) -> list[AccountAPI]:
         """
         Get a list of accounts by their type.
 
         Args:
-            type_ (Type[:class:`~ape.api.accounts.AccountAPI`]): The type of account
+            type_ (type[:class:`~ape.api.accounts.AccountAPI`]): The type of account
               to get.
 
         Returns:
-            List[:class:`~ape.api.accounts.AccountAPI`]
+            list[:class:`~ape.api.accounts.AccountAPI`]
         """
 
         return [acc for acc in self if isinstance(acc, type_)]
@@ -215,15 +262,15 @@ class AccountManager(BaseManager):
         Returns:
             int
         """
-
         return sum(len(container) for container in self.containers.values())
 
     def __iter__(self) -> Iterator[AccountAPI]:
         for container in self.containers.values():
             yield from container.accounts
 
+    @log_instead_of_fail(default="<AccountManager>")
     def __repr__(self) -> str:
-        return "[" + ", ".join(repr(a) for a in self) + "]"
+        return "<AccountManager>"
 
     @cached_property
     def test_accounts(self) -> TestAccountManager:
@@ -251,20 +298,23 @@ class AccountManager(BaseManager):
         Get an account by its alias.
 
         Raises:
-            IndexError: When there is no local account with the given alias.
+            KeyError: When there is no local account with the given alias.
 
         Returns:
             :class:`~ape.api.accounts.AccountAPI`
         """
-
         if alias == "":
             raise ValueError("Cannot use empty string as alias!")
 
+        elif alias in self._alias_to_account_cache:
+            return self._alias_to_account_cache[alias]
+
         for account in self:
             if account.alias and account.alias == alias:
+                self._alias_to_account_cache[alias] = account
                 return account
 
-        raise IndexError(f"No account with alias '{alias}'.")
+        raise KeyError(f"No account with alias '{alias}'.")
 
     @singledispatchmethod
     def __getitem__(self, account_id) -> AccountAPI:
@@ -285,7 +335,6 @@ class AccountManager(BaseManager):
         Returns:
             :class:`~ape.api.accounts.AccountAPI`
         """
-
         if account_id < 0:
             account_id = len(self) + account_id
         for idx, account in enumerate(self):
@@ -307,7 +356,7 @@ class AccountManager(BaseManager):
         :meth:`~ape.managers.accounts.AccountManager.__getitem_str`.
 
         Returns:
-            List[:class:`~ape.api.accounts.AccountAPI`]
+            list[:class:`~ape.api.accounts.AccountAPI`]
         """
 
         start_idx = account_id.start or 0
@@ -326,13 +375,22 @@ class AccountManager(BaseManager):
         accounts, this method will return an impersonated account at that address.
 
         Raises:
-            IndexError: When there is no local account with the given address.
+            KeyError: When there is no local account with the given address.
 
         Returns:
             :class:`~ape.api.accounts.AccountAPI`
         """
 
-        account_id = self.conversion_manager.convert(account_str, AddressType)
+        try:
+            account_id = self.conversion_manager.convert(account_str, AddressType)
+        except ConversionError as err:
+            prefix = f"No account with ID '{account_str}'"
+            if account_str.endswith(".eth"):
+                suffix = "Do you have `ape-ens` installed?"
+            else:
+                suffix = "Do you have the necessary conversion plugins installed?"
+
+            raise KeyError(f"{prefix}. {suffix}") from err
 
         for container in self.containers.values():
             if account_id in container.accounts:
@@ -346,12 +404,11 @@ class AccountManager(BaseManager):
         Determine if the given address matches an account in ``ape``.
 
         Args:
-            address (``AddressType``): The address to check.
+            address (:class:`~ape.types.address.AddressType`): The address to check.
 
         Returns:
             bool: ``True`` when the given address is found.
         """
-
         return (
             any(address in container for container in self.containers.values())
             or address in self.test_accounts
@@ -360,12 +417,20 @@ class AccountManager(BaseManager):
     def use_sender(
         self,
         account_id: Union[AccountAPI, AddressType, str, int],
-    ) -> ContextManager:
+    ) -> "ContextManager":
         if not isinstance(account_id, AccountAPI):
             if isinstance(account_id, int) or is_hex(account_id):
                 account = self[account_id]
             elif isinstance(account_id, str):  # alias
                 account = self.load(account_id)
+            else:
+                raise TypeError(account_id)
         else:
             account = account_id
+
         return _use_sender(account)
+
+    def init_test_account(
+        self, index: int, address: AddressType, private_key: str
+    ) -> "TestAccountAPI":
+        return self.test_accounts.init_test_account(index, address, private_key)

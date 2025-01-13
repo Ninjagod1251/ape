@@ -1,15 +1,17 @@
 import sys
 import time
-from datetime import datetime
-from typing import IO, TYPE_CHECKING, Any, Iterator, List, Optional, Union
+from abc import abstractmethod
+from collections.abc import Iterator
+from datetime import datetime as datetime_type
+from functools import cached_property
+from typing import IO, TYPE_CHECKING, Any, NoReturn, Optional, Union
 
-from eth_utils import is_0x_prefixed, is_hex, to_int
-from ethpm_types import HexBytes
-from ethpm_types.abi import EventABI, MethodABI
+from eth_pydantic_types import HexBytes, HexStr
+from eth_utils import is_hex, to_hex, to_int
+from pydantic import ConfigDict, field_validator
+from pydantic.fields import Field
 from tqdm import tqdm  # type: ignore
 
-from ape._pydantic_compat import Field, validator
-from ape.api.explorers import ExplorerAPI
 from ape.exceptions import (
     NetworkError,
     ProviderNotConnectedError,
@@ -18,25 +20,22 @@ from ape.exceptions import (
     TransactionNotFoundError,
 )
 from ape.logging import logger
-from ape.types import (
-    AddressType,
-    AutoGasLimit,
-    ContractLogContainer,
-    SourceTraceback,
-    TraceFrame,
-    TransactionSignature,
-)
-from ape.utils import (
-    BaseInterfaceModel,
-    ExtraModelAttributes,
-    abstractmethod,
-    cached_property,
-    raises_not_implemented,
-)
+from ape.types.address import AddressType
+from ape.types.basic import HexInt
+from ape.types.gas import AutoGasLimit
+from ape.types.signatures import TransactionSignature
+from ape.utils.basemodel import BaseInterfaceModel, ExtraAttributesMixin, ExtraModelAttributes
+from ape.utils.misc import log_instead_of_fail, raises_not_implemented
 
 if TYPE_CHECKING:
+    from ethpm_types.abi import EventABI, MethodABI
+
+    from ape.api.explorers import ExplorerAPI
     from ape.api.providers import BlockAPI
+    from ape.api.trace import TraceAPI
     from ape.contracts import ContractEvent
+    from ape.types.events import ContractLogContainer
+    from ape.types.trace import SourceTraceback
 
 
 class TransactionAPI(BaseInterfaceModel):
@@ -47,29 +46,34 @@ class TransactionAPI(BaseInterfaceModel):
     such as typed-transactions from `EIP-1559 <https://eips.ethereum.org/EIPS/eip-1559>`__.
     """
 
-    chain_id: Optional[int] = Field(0, alias="chainId")
-    receiver: Optional[AddressType] = Field(None, alias="to")
-    sender: Optional[AddressType] = Field(None, alias="from")
-    gas_limit: Optional[int] = Field(None, alias="gas")
-    nonce: Optional[int] = None  # NOTE: `Optional` only to denote using default behavior
-    value: int = 0
-    data: bytes = b""
-    type: int
-    max_fee: Optional[int] = None
-    max_priority_fee: Optional[int] = None
+    chain_id: Optional[HexInt] = Field(default=0, alias="chainId")
+    receiver: Optional[AddressType] = Field(default=None, alias="to")
+    sender: Optional[AddressType] = Field(default=None, alias="from")
+    gas_limit: Optional[HexInt] = Field(default=None, alias="gas")
+    nonce: Optional[HexInt] = None  # NOTE: `Optional` only to denote using default behavior
+    value: HexInt = 0
+    data: HexBytes = HexBytes("")
+    type: HexInt
+    max_fee: Optional[HexInt] = None
+    max_priority_fee: Optional[HexInt] = None
 
     # If left as None, will get set to the network's default required confirmations.
-    required_confirmations: Optional[int] = Field(None, exclude=True)
+    required_confirmations: Optional[HexInt] = Field(default=None, exclude=True)
 
-    signature: Optional[TransactionSignature] = Field(None, exclude=True)
+    signature: Optional[TransactionSignature] = Field(default=None, exclude=True)
 
-    class Config:
-        allow_population_by_field_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
-    @validator("gas_limit", pre=True, allow_reuse=True)
+    def __init__(self, *args, **kwargs):
+        raise_on_revert = kwargs.pop("raise_on_revert", True)
+        super().__init__(*args, **kwargs)
+        self._raise_on_revert = raise_on_revert
+
+    @field_validator("gas_limit", mode="before")
+    @classmethod
     def validate_gas_limit(cls, value):
         if value is None:
-            if not cls.network_manager.active_provider:
+            if not cls.network_manager.connected:
                 raise NetworkError("Must be connected to use default gas config.")
 
             value = cls.network_manager.active_provider.network.gas_limit
@@ -78,7 +82,7 @@ class TransactionAPI(BaseInterfaceModel):
             return None  # Delegate to `ProviderAPI.estimate_gas_cost`
 
         elif value == "max":
-            if not cls.network_manager.active_provider:
+            if not cls.network_manager.connected:
                 raise NetworkError("Must be connected to use 'max'.")
 
             return cls.network_manager.active_provider.max_gas
@@ -91,29 +95,24 @@ class TransactionAPI(BaseInterfaceModel):
 
         return value
 
-    @validator("max_fee", "max_priority_fee", pre=True, allow_reuse=True)
-    def convert_fees(cls, value):
-        if isinstance(value, str):
-            return cls.conversion_manager.convert(value, int)
+    @property
+    def gas(self) -> Optional[int]:
+        """
+        Alias for ``.gas_limit``.
+        """
+        return self.gas_limit
 
-        return value
+    @property
+    def raise_on_revert(self) -> bool:
+        """
+        ``True`` means VM-reverts should raise exceptions.
+        ``False`` allows getting failed receipts.
+        """
+        return self._raise_on_revert
 
-    @validator("data", pre=True)
-    def validate_data(cls, value):
-        if isinstance(value, str):
-            return HexBytes(value)
-
-        return value
-
-    @validator("value", pre=True)
-    def validate_value(cls, value):
-        if isinstance(value, int):
-            return value
-
-        elif isinstance(value, str) and is_0x_prefixed(value):
-            return int(value, 16)
-
-        return int(value)
+    @raise_on_revert.setter
+    def raise_on_revert(self, value):
+        self._raise_on_revert = value
 
     @property
     def total_transfer_value(self) -> int:
@@ -134,24 +133,31 @@ class TransactionAPI(BaseInterfaceModel):
         The calculated hash of the transaction.
         """
 
+    # TODO: In 0.9, simply rename txn_hash to hash.
+    @property
+    def hash(self) -> HexBytes:
+        """
+        Alias for ``self.txn_hash``.
+        """
+        return self.txn_hash
+
     @property
     def receipt(self) -> Optional["ReceiptAPI"]:
         """
         This transaction's associated published receipt, if it exists.
         """
-
         try:
-            txn_hash = self.txn_hash.hex()
+            txn_hash = to_hex(self.txn_hash)
         except SignatureError:
             return None
 
         try:
-            return self.provider.get_receipt(txn_hash, required_confirmations=0, timeout=0)
+            return self.chain_manager.get_receipt(txn_hash)
         except (TransactionNotFoundError, ProviderNotConnectedError):
             return None
 
     @property
-    def trace(self) -> Iterator[TraceFrame]:
+    def trace(self) -> "TraceAPI":
         """
         The transaction trace. Only works if this transaction was published
         and you are using a provider that support tracing.
@@ -160,7 +166,7 @@ class TransactionAPI(BaseInterfaceModel):
             :class:`~ape.exceptions.APINotImplementedError`: When using a provider
               that does not support tracing.
         """
-        return self.provider.get_transaction_trace(self.txn_hash.hex())
+        return self.provider.get_transaction_trace(to_hex(self.txn_hash))
 
     @abstractmethod
     def serialize_transaction(self) -> bytes:
@@ -168,13 +174,17 @@ class TransactionAPI(BaseInterfaceModel):
         Serialize the transaction
         """
 
+    @log_instead_of_fail(default="<TransactionAPI>")
     def __repr__(self) -> str:
-        data = self.dict()
+        # NOTE: Using JSON mode for style.
+        data = self.model_dump(mode="json")
         params = ", ".join(f"{k}={v}" for k, v in data.items())
-        return f"<{self.__class__.__name__} {params}>"
+        cls_name = getattr(type(self), "__name__", TransactionAPI.__name__)
+        return f"<{cls_name} {params}>"
 
     def __str__(self) -> str:
-        data = self.dict()
+        # NOTE: Using JSON mode for style.
+        data = self.model_dump(mode="json")
         if len(data["data"]) > 9:
             # only want to specify encoding if data["data"] is a string
             if isinstance(data["data"], str):
@@ -186,15 +196,16 @@ class TransactionAPI(BaseInterfaceModel):
                 )
             else:
                 data["data"] = (
-                    "0x" + bytes(data["data"][:3]).hex() + "..." + bytes(data["data"][-3:]).hex()
+                    to_hex(bytes(data["data"][:3])) + "..." + to_hex(bytes(data["data"][-3:]))
                 )
         else:
             if isinstance(data["data"], str):
-                data["data"] = "0x" + bytes(data["data"], encoding="utf8").hex()
+                data["data"] = to_hex(bytes(data["data"], encoding="utf8"))
             else:
-                data["data"] = "0x" + bytes(data["data"]).hex()
+                data["data"] = to_hex(bytes(data["data"]))
         params = "\n  ".join(f"{k}: {v}" for k, v in data.items())
-        return f"{self.__class__.__name__}:\n  {params}"
+        cls_name = getattr(type(self), "__name__", TransactionAPI.__name__)
+        return f"{cls_name}:\n  {params}"
 
 
 class ConfirmationsProgressBar:
@@ -242,7 +253,7 @@ class ConfirmationsProgressBar:
         self._bar.set_description(f"Confirmations ({self._confs}/{self._req_confs})")
 
 
-class ReceiptAPI(BaseInterfaceModel):
+class ReceiptAPI(ExtraAttributesMixin, BaseInterfaceModel):
     """
     An abstract class to represent a transaction receipt. The receipt
     contains information about the transaction, such as the status
@@ -256,33 +267,67 @@ class ReceiptAPI(BaseInterfaceModel):
     """
 
     contract_address: Optional[AddressType] = None
-    block_number: int
-    gas_used: int
-    logs: List[dict] = []
-    status: int
-    txn_hash: str
+    block_number: HexInt
+    gas_used: HexInt
+    logs: list[dict] = []
+    status: HexInt
+    txn_hash: HexStr
     transaction: TransactionAPI
+    _error: Optional[TransactionError] = None
 
+    @log_instead_of_fail(default="<ReceiptAPI>")
     def __repr__(self) -> str:
-        return f"<{self.__class__.__name__} {self.txn_hash}>"
+        cls_name = getattr(self.__class__, "__name__", ReceiptAPI.__name__)
+        return f"<{cls_name} {self.txn_hash}>"
 
     def __ape_extra_attributes__(self) -> Iterator[ExtraModelAttributes]:
-        yield ExtraModelAttributes(name="transaction", attributes=self.transaction)
+        yield ExtraModelAttributes(name="transaction", attributes=lambda: vars(self.transaction))
 
-    @validator("transaction", pre=True)
-    def confirm_transaction(cls, value):
-        if isinstance(value, dict):
-            value = TransactionAPI.parse_obj(value)
+    @field_validator("transaction", mode="before")
+    @classmethod
+    def _validate_transaction(cls, value):
+        if not isinstance(value, dict):
+            # Already a `TransactionAPI`.
+            return value
 
-        return value
+        # Attempt to create a transaction model for the data.
+        if provider := cls.network_manager.active_provider:
+            ecosystem = provider.network.ecosystem
+        else:
+            logger.warning(
+                "Given raw-transaction data when not connected to any provider. "
+                "Network is unknown. Assuming EVM-like transaction model."
+            )
+            ecosystem = cls.network_manager.ethereum
 
-    @validator("txn_hash", pre=True)
-    def validate_txn_hash(cls, value):
-        return HexBytes(value).hex()
+        return ecosystem.create_transaction(**value)
+
+    @cached_property
+    def debug_logs_typed(self) -> list[tuple[Any]]:
+        """Return any debug log data outputted by the transaction."""
+        return []
+
+    @cached_property
+    def debug_logs_lines(self) -> list[str]:
+        """
+        Return any debug log data outputted by the transaction as strings suitable for printing
+        """
+        return [" ".join(map(str, ln)) for ln in self.debug_logs_typed]
 
     @property
-    def call_tree(self) -> Optional[Any]:
-        return None
+    def error(self) -> Optional[TransactionError]:
+        return self._error
+
+    @error.setter
+    def error(self, value: TransactionError):
+        self._error = value
+
+    def show_debug_logs(self):
+        """
+        Output debug logs to logging system
+        """
+        for ln in self.debug_logs_lines:
+            logger.info(f"[DEBUG-LOG] {ln}")
 
     @property
     def failed(self) -> bool:
@@ -291,8 +336,15 @@ class ReceiptAPI(BaseInterfaceModel):
         Ecosystem plugins override this property when their receipts
         are able to be failing.
         """
-
         return False
+
+    @property
+    def confirmed(self) -> bool:
+        """
+        ``True`` when the number of confirmations is equal or greater
+        to the required amount of confirmations.
+        """
+        return self._confirmations_occurred == self.required_confirmations
 
     @property
     @abstractmethod
@@ -312,15 +364,15 @@ class ReceiptAPI(BaseInterfaceModel):
             same amount of gas as the given ``gas_limit``.
         """
 
-    @property
-    def trace(self) -> Iterator[TraceFrame]:
+    @cached_property
+    def trace(self) -> "TraceAPI":
         """
-        The trace of the transaction, if available from your provider.
+        The :class:`~ape.api.trace.TraceAPI` of the transaction.
         """
-        return self.provider.get_transaction_trace(txn_hash=self.txn_hash)
+        return self.provider.get_transaction_trace(self.txn_hash)
 
     @property
-    def _explorer(self) -> Optional[ExplorerAPI]:
+    def _explorer(self) -> Optional["ExplorerAPI"]:
         return self.provider.network.explorer
 
     @property
@@ -345,11 +397,11 @@ class ReceiptAPI(BaseInterfaceModel):
         return self.block.timestamp
 
     @property
-    def datetime(self) -> datetime:
+    def datetime(self) -> "datetime_type":
         return self.block.datetime
 
     @cached_property
-    def events(self) -> ContractLogContainer:
+    def events(self) -> "ContractLogContainer":
         """
         All the events that were emitted from this call.
         """
@@ -360,9 +412,9 @@ class ReceiptAPI(BaseInterfaceModel):
     def decode_logs(
         self,
         abi: Optional[
-            Union[List[Union[EventABI, "ContractEvent"]], Union[EventABI, "ContractEvent"]]
+            Union[list[Union["EventABI", "ContractEvent"]], Union["EventABI", "ContractEvent"]]
         ] = None,
-    ) -> ContractLogContainer:
+    ) -> "ContractLogContainer":
         """
         Decode the logs on the receipt.
 
@@ -370,10 +422,10 @@ class ReceiptAPI(BaseInterfaceModel):
             abi (``EventABI``): The ABI of the event to decode into logs.
 
         Returns:
-            List[:class:`~ape.types.ContractLog`]
+            list[:class:`~ape.types.ContractLog`]
         """
 
-    def raise_for_status(self):
+    def raise_for_status(self) -> Optional[NoReturn]:
         """
         Handle provider-specific errors regarding a non-successful
         :class:`~api.providers.TransactionStatusEnum`.
@@ -386,36 +438,39 @@ class ReceiptAPI(BaseInterfaceModel):
         Returns:
             :class:`~ape.api.ReceiptAPI`: The receipt that is now confirmed.
         """
-
-        try:
-            self.raise_for_status()
-        except TransactionError:
-            # Skip waiting for confirmations when the transaction has failed.
+        # NOTE: Even when required_confirmations is `0`, we want to wait for the nonce to
+        #   increment. Otherwise, users may end up with invalid nonce errors in tests.
+        self._await_sender_nonce_increment()
+        if self.required_confirmations == 0 or self._check_error_status() or self.confirmed:
             return self
+
+        # Confirming now.
+        self._log_submission()
+        self._await_confirmations()
+        return self
+
+    def _await_sender_nonce_increment(self):
+        if not self.sender:
+            return
 
         iterations_timeout = 20
         iteration = 0
-        # Wait for nonce from provider to increment.
-        if self.sender:
+        sender_nonce = self.provider.get_nonce(self.sender)
+        while sender_nonce == self.nonce:
+            time.sleep(1)
             sender_nonce = self.provider.get_nonce(self.sender)
+            iteration += 1
+            if iteration != iterations_timeout:
+                continue
 
-            while sender_nonce == self.nonce:
-                time.sleep(1)
-                sender_nonce = self.provider.get_nonce(self.sender)
-                iteration += 1
-                if iteration == iterations_timeout:
-                    raise TransactionError("Timeout waiting for sender's nonce to increase.")
+            tx_err = TransactionError("Timeout waiting for sender's nonce to increase.")
+            self.error = tx_err
+            if self.transaction.raise_on_revert:
+                raise tx_err
+            else:
+                break
 
-        if self.required_confirmations == 0:
-            # The transaction might not yet be confirmed but
-            # the user is aware of this. Or, this is a development environment.
-            return self
-
-        confirmations_occurred = self._confirmations_occurred
-        if self.required_confirmations and confirmations_occurred >= self.required_confirmations:
-            return self
-
-        # If we get here, that means the transaction has been recently submitted.
+    def _log_submission(self):
         if explorer_url := self._explorer and self._explorer.get_transaction_url(self.txn_hash):
             log_message = f"Submitted {explorer_url}"
         else:
@@ -423,56 +478,53 @@ class ReceiptAPI(BaseInterfaceModel):
 
         logger.info(log_message)
 
-        if self.required_confirmations:
-            with ConfirmationsProgressBar(self.required_confirmations) as progress_bar:
-                while confirmations_occurred < self.required_confirmations:
-                    confirmations_occurred = self._confirmations_occurred
-                    progress_bar.confs = confirmations_occurred
+    def _check_error_status(self) -> bool:
+        try:
+            self.raise_for_status()
+        except TransactionError:
+            # Skip waiting for confirmations when the transaction has failed.
+            return True
 
-                    if confirmations_occurred == self.required_confirmations:
-                        break
+        return False
 
-                    time_to_sleep = int(self._block_time / 2)
-                    time.sleep(time_to_sleep)
+    def _await_confirmations(self):
+        if self.required_confirmations <= 0:
+            return
 
-        return self
+        with ConfirmationsProgressBar(self.required_confirmations) as progress_bar:
+            while not self.confirmed:
+                confirmations_occurred = self._confirmations_occurred
+                if confirmations_occurred >= self.required_confirmations:
+                    break
+
+                progress_bar.confs = confirmations_occurred
+                time_to_sleep = int(self._block_time / 2)
+                time.sleep(time_to_sleep)
 
     @property
-    def method_called(self) -> Optional[MethodABI]:
+    def method_called(self) -> Optional["MethodABI"]:
         """
         The method ABI of the method called to produce this receipt.
         """
-
         return None
 
-    @property
+    @cached_property
     def return_value(self) -> Any:
         """
         Obtain the final return value of the call. Requires tracing to function,
         since this is not available from the receipt object.
         """
+        if trace := self.trace:
+            ret_val = trace.return_value
+            return ret_val[0] if isinstance(ret_val, tuple) and len(ret_val) == 1 else ret_val
 
-        if not (call_tree := self.call_tree) or not (method_abi := self.method_called):
-            return None
-
-        if isinstance(call_tree.outputs, (str, HexBytes, int)):
-            output = self.provider.network.ecosystem.decode_returndata(
-                method_abi, HexBytes(call_tree.outputs)
-            )
-        else:
-            # Already enriched.
-            output = call_tree.outputs
-
-        if isinstance(output, tuple) and len(output) < 2:
-            output = output[0] if len(output) == 1 else None
-
-        return output
+        return None
 
     @property
     @raises_not_implemented
-    def source_traceback(self) -> SourceTraceback:  # type: ignore[empty-body]
+    def source_traceback(self) -> "SourceTraceback":  # type: ignore[empty-body]
         """
-        A pythonic style traceback for both failing and non-failing receipts.
+        A Pythonic style traceback for both failing and non-failing receipts.
         Requires a provider that implements
         :meth:~ape.api.providers.ProviderAPI.get_transaction_trace`.
         """
@@ -502,6 +554,12 @@ class ReceiptAPI(BaseInterfaceModel):
         like in local projects.
         """
 
+    @raises_not_implemented
+    def show_events(self):
+        """
+        Show the events from the receipt.
+        """
+
     def track_gas(self):
         """
         Track this receipt's gas in the on-going session gas-report.
@@ -513,9 +571,9 @@ class ReceiptAPI(BaseInterfaceModel):
         if not address or not self._test_runner:
             return
 
-        if self.provider.supports_tracing and (call_tree := self.call_tree):
+        if self.provider.supports_tracing and (trace := self.trace):
             tracker = self._test_runner.gas_tracker
-            tracker.append_gas(call_tree.enrich(in_line=False), address)
+            tracker.append_gas(trace, address)
 
         elif (
             (contract_type := self.chain_manager.contracts.get(address))
@@ -523,7 +581,7 @@ class ReceiptAPI(BaseInterfaceModel):
             and (method := self.method_called)
         ):
             # Can only track top-level gas.
-            if contract := self.project_manager._create_contract_source(contract_type):
+            if contract := self.local_project._create_contract_source(contract_type):
                 self._test_runner.gas_tracker.append_toplevel_gas(contract, method, self.gas_used)
 
     def track_coverage(self):
@@ -555,5 +613,5 @@ class ReceiptAPI(BaseInterfaceModel):
             if not contract_type or not contract_type.source_id:
                 return
 
-            if contract := self.project_manager._create_contract_source(contract_type):
+            if contract := self.local_project._create_contract_source(contract_type):
                 tracker.hit_function(contract, method)

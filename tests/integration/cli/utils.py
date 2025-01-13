@@ -1,10 +1,12 @@
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, Dict
 
 import pytest
 
 __projects_directory__ = Path(__file__).parent / "projects"
-__project_names__ = [p.stem for p in __projects_directory__.iterdir() if p.is_dir()]
+__project_names__ = [
+    p.stem for p in __projects_directory__.iterdir() if p.is_dir() and not p.stem.startswith(".")
+]
 
 
 def assert_failure(result, expected_output):
@@ -39,7 +41,7 @@ class ProjectSkipper:
     """
 
     def __init__(self):
-        self.projects: Dict[str, Dict] = {n: {} for n in __project_names__}
+        self.projects: dict[str, dict] = {n: {} for n in __project_names__}
 
     def __iter__(self):
         return iter(self.projects)
@@ -69,6 +71,7 @@ class ProjectSkipper:
         The ``skip_project`` decorator calls this method
         on the test method they are wrapped around.
         """
+        assert hasattr(method, "__name__") and hasattr(method, "__module__")
         node = NodeId(method)
         for project in projects:
             self._raise_if_not_exists(project, node.node_id)
@@ -83,6 +86,7 @@ class ProjectSkipper:
         in the given list. The ``skip_project_except`` decorator calls
         this method on the test method they are wrapped around.
         """
+        assert hasattr(method, "__name__") and hasattr(method, "__module__")
         node = NodeId(method)
 
         # Verify projects to run for exist

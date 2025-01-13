@@ -1,46 +1,48 @@
-from pathlib import Path as _Path
+def __getattr__(name: str):
+    if name == "AccountManager":
+        from ape.managers.accounts import AccountManager
 
-from ape.plugins import PluginManager
-from ape.utils import USER_AGENT, ManagerAccessMixin
+        return AccountManager
 
-from .accounts import AccountManager
-from .chain import ChainManager
-from .compilers import CompilerManager
-from .config import ConfigManager
-from .converters import ConversionManager
-from .networks import NetworkManager
-from .project import DependencyManager, ProjectManager
-from .query import QueryManager
+    elif name == "ChainManager":
+        from ape.managers.chain import ChainManager
 
-# Wiring together the application
-_data_folder = _Path.home().joinpath(".ape")
-_project_folder = _Path.cwd()
+        return ChainManager
 
-ManagerAccessMixin.plugin_manager = PluginManager()
+    elif name == "CompilerManager":
+        from ape.managers.compilers import CompilerManager
 
-ManagerAccessMixin.dependency_manager = DependencyManager(data_folder=_data_folder)
+        return CompilerManager
 
-ManagerAccessMixin.config_manager = ConfigManager(
-    # Store all globally-cached files
-    DATA_FOLDER=_data_folder,
-    # NOTE: For all HTTP requests we make
-    REQUEST_HEADER={
-        "User-Agent": USER_AGENT,
-    },
-    # What we are considering to be the starting project directory
-    PROJECT_FOLDER=_project_folder,
-)
+    elif name == "ConfigManager":
+        from ape.managers.config import ConfigManager
 
-ManagerAccessMixin.compiler_manager = CompilerManager()
+        return ConfigManager
 
-ManagerAccessMixin.network_manager = NetworkManager()
+    elif name == "ConversionManager":
+        from ape.managers.converters import ConversionManager
 
-ManagerAccessMixin.query_manager = QueryManager()
+        return ConversionManager
 
-ManagerAccessMixin.conversion_manager = ConversionManager()
+    elif name == "NetworkManager":
+        from ape.managers.networks import NetworkManager
 
-ManagerAccessMixin.chain_manager = ChainManager()
+        return NetworkManager
 
-ManagerAccessMixin.account_manager = AccountManager()
+    elif name == "PluginManager":
+        from ape.managers.plugins import PluginManager
 
-ManagerAccessMixin.project_manager = ProjectManager(path=_project_folder)
+        return PluginManager
+
+    elif name == "ProjectManager":
+        from ape.managers.project import ProjectManager
+
+        return ProjectManager
+
+    elif name == "QueryManager":
+        from ape.managers.query import QueryManager
+
+        return QueryManager
+
+    else:
+        raise AttributeError(name)

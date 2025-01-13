@@ -1,18 +1,27 @@
+from collections.abc import Iterator
+from functools import singledispatchmethod
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Optional, cast
 
 from sqlalchemy import create_engine, func
-from sqlalchemy.engine import CursorResult
+from sqlalchemy.engine import CursorResult  # noqa: TC002
 from sqlalchemy.sql import column, insert, select
-from sqlalchemy.sql.expression import Insert, Select
+from sqlalchemy.sql.expression import Insert, Select  # noqa: TC002
 
-from ape.api import BlockAPI, QueryAPI, QueryType
-from ape.api.networks import LOCAL_NETWORK_NAME
-from ape.api.query import BaseInterfaceModel, BlockQuery, BlockTransactionQuery, ContractEventQuery
+from ape.api.providers import BlockAPI  # noqa: TC002
+from ape.api.query import (
+    BaseInterfaceModel,
+    BlockQuery,
+    BlockTransactionQuery,
+    ContractEventQuery,
+    QueryAPI,
+    QueryType,
+)
+from ape.api.transactions import TransactionAPI
 from ape.exceptions import QueryEngineError
 from ape.logging import logger
-from ape.types import ContractLog
-from ape.utils import singledispatchmethod
+from ape.types.events import ContractLog
+from ape.utils.misc import LOCAL_NETWORK_NAME
 
 from . import models
 from .models import Blocks, ContractEvents, Transactions
@@ -117,10 +126,10 @@ class CacheQueryProvider(QueryAPI):
         Returns:
             Optional[`sqlalchemy.engine.Connection`]
         """
-        if self.provider.network.name == LOCAL_NETWORK_NAME:
+        if self.provider.network.is_local:
             return None
 
-        if not self.network_manager.active_provider:
+        if not self.network_manager.connected:
             raise QueryEngineError("Not connected to a provider")
 
         database_file = self._get_database_file(
@@ -326,7 +335,7 @@ class CacheQueryProvider(QueryAPI):
             )
 
     @perform_query.register
-    def _perform_transaction_query(self, query: BlockTransactionQuery) -> Iterator[Dict]:
+    def _perform_transaction_query(self, query: BlockTransactionQuery) -> Iterator[dict]:
         with self.database_connection as conn:
             result = conn.execute(
                 select([Transactions]).where(Transactions.block_hash == query.block_id)
@@ -352,7 +361,7 @@ class CacheQueryProvider(QueryAPI):
                 # NOTE: Should be unreachable if estimated correctly
                 raise QueryEngineError(f"Could not perform query:\n{query}")
 
-            yield from map(lambda row: ContractLog.parse_obj(dict(row.items())), result)
+            yield from map(lambda row: ContractLog.model_validate(dict(row.items())), result)
 
     @singledispatchmethod
     def _cache_update_clause(self, query: QueryType) -> Insert:
@@ -395,7 +404,7 @@ class CacheQueryProvider(QueryAPI):
     @singledispatchmethod
     def _get_cache_data(
         self, query: QueryType, result: Iterator[BaseInterfaceModel]
-    ) -> Optional[List[Dict[str, Any]]]:
+    ) -> Optional[list[dict[str, Any]]]:
         raise QueryEngineError(
             """
             Not a compatible QueryType. For more details see our docs
@@ -406,17 +415,22 @@ class CacheQueryProvider(QueryAPI):
     @_get_cache_data.register
     def _get_block_cache_data(
         self, query: BlockQuery, result: Iterator[BaseInterfaceModel]
-    ) -> Optional[List[Dict[str, Any]]]:
-        return [m.dict(by_alias=False) for m in result]
+    ) -> Optional[list[dict[str, Any]]]:
+        return [m.model_dump(mode="json", by_alias=False) for m in result]
 
     @_get_cache_data.register
     def _get_block_txns_data(
         self, query: BlockTransactionQuery, result: Iterator[BaseInterfaceModel]
-    ) -> Optional[List[Dict[str, Any]]]:
+    ) -> Optional[list[dict[str, Any]]]:
         new_result = []
         table_columns = [c.key for c in Transactions.__table__.columns]  # type: ignore
-        for val in [m for m in result]:
-            new_dict = {k: v for k, v in val.dict(by_alias=False).items() if k in table_columns}
+        txns: list[TransactionAPI] = cast(list[TransactionAPI], result)
+        for val in [m for m in txns]:
+            new_dict = {
+                k: v
+                for k, v in val.model_dump(mode="json", by_alias=False).items()
+                if k in table_columns
+            }
             for col in table_columns:
                 if col == "txn_hash":
                     new_dict["txn_hash"] = val.txn_hash
@@ -428,7 +442,7 @@ class CacheQueryProvider(QueryAPI):
                     new_dict["receiver"] = b""
                 elif col == "block_hash":
                     new_dict["block_hash"] = query.block_id
-                elif col == "signature":
+                elif col == "signature" and val.signature is not None:
                     new_dict["signature"] = val.signature.encode_rsv()
                 elif col not in new_dict:
                     new_dict[col] = None
@@ -438,8 +452,8 @@ class CacheQueryProvider(QueryAPI):
     @_get_cache_data.register
     def _get_cache_events_data(
         self, query: ContractEventQuery, result: Iterator[BaseInterfaceModel]
-    ) -> Optional[List[Dict[str, Any]]]:
-        return [m.dict(by_alias=False) for m in result]
+    ) -> Optional[list[dict[str, Any]]]:
+        return [m.model_dump(mode="json", by_alias=False) for m in result]
 
     def update_cache(self, query: QueryType, result: Iterator[BaseInterfaceModel]):
         try:

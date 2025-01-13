@@ -1,14 +1,19 @@
-from typing import TYPE_CHECKING, Any, List
+from abc import abstractmethod
+from functools import cached_property
+from typing import TYPE_CHECKING, Any
 
-from ethpm_types import HexBytes
+from eth_pydantic_types import HexBytes
 
 from ape.exceptions import ConversionError
-from ape.types import AddressType, ContractCode
-from ape.utils import BaseInterface, abstractmethod, cached_property
+from ape.types.address import AddressType
+from ape.types.units import CurrencyValue
+from ape.utils.basemodel import BaseInterface
+from ape.utils.misc import log_instead_of_fail
 
 if TYPE_CHECKING:
     from ape.api.transactions import ReceiptAPI, TransactionAPI
     from ape.managers.chain import AccountHistory
+    from ape.types.vm import ContractCode
 
 
 class BaseAddress(BaseInterface):
@@ -17,7 +22,7 @@ class BaseAddress(BaseInterface):
     """
 
     @property
-    def _base_dir_values(self) -> List[str]:
+    def _base_dir_values(self) -> list[str]:
         """
         This exists because when you call ``dir(BaseAddress)``, you get the type's return
         value and not the instances. This allows base-classes to make use of shared
@@ -26,6 +31,7 @@ class BaseAddress(BaseInterface):
 
         # NOTE: mypy is confused by properties.
         #  https://github.com/python/typing/issues/1112
+
         return [
             str(BaseAddress.address.fget.__name__),  # type: ignore[attr-defined]
             str(BaseAddress.balance.fget.__name__),  # type: ignore[attr-defined]
@@ -33,7 +39,7 @@ class BaseAddress(BaseInterface):
             str(BaseAddress.codesize.fget.__name__),  # type: ignore[attr-defined]
             str(BaseAddress.nonce.fget.__name__),  # type: ignore[attr-defined]
             str(BaseAddress.is_contract.fget.__name__),  # type: ignore[attr-defined]
-            str(BaseAddress.provider.fget.__name__),  # type: ignore[attr-defined]
+            "provider",  # Is a class property
         ]
 
     @property
@@ -45,7 +51,8 @@ class BaseAddress(BaseInterface):
 
     def __eq__(self, other: object) -> bool:
         """
-        Compares :class:`~ape.api.BaseAddress` / ``str`` objects by converting to ``AddressType``.
+        Compares :class:`~ape.api.BaseAddress` or ``str`` objects by converting to
+        :class:`~ape.types.address.AddressType`.
 
         Returns:
             bool: comparison result
@@ -59,18 +66,20 @@ class BaseAddress(BaseInterface):
             # Check other __eq__
             return NotImplemented
 
-    def __dir__(self) -> List[str]:
+    def __dir__(self) -> list[str]:
         """
         Display methods to IPython on ``a.[TAB]`` tab completion.
         Overridden to lessen amount of methods shown to only those that are useful.
 
         Returns:
-            List[str]: Method names that IPython uses for tab completion.
+            list[str]: Method names that IPython uses for tab completion.
         """
         return self._base_dir_values
 
+    @log_instead_of_fail(default="<BaseAddress>")
     def __repr__(self) -> str:
-        return f"<{self.__class__.__name__} {self.address}>"
+        cls_name = getattr(type(self), "__name__", BaseAddress.__name__)
+        return f"<{cls_name} {self.address}>"
 
     def __str__(self) -> str:
         """
@@ -83,7 +92,8 @@ class BaseAddress(BaseInterface):
 
     def __call__(self, **kwargs) -> "ReceiptAPI":
         """
-        Call this address directly.
+        Call this address directly. For contracts, this may mean invoking their
+        default handler.
 
         Args:
             **kwargs: Transaction arguments, such as ``sender`` or ``data``.
@@ -114,8 +124,10 @@ class BaseAddress(BaseInterface):
         """
         The total balance of the account.
         """
-
-        return self.provider.get_balance(self.address)
+        bal = self.provider.get_balance(self.address)
+        # By using CurrencyValue, we can compare with
+        # strings like "1 ether".
+        return CurrencyValue(bal)
 
     # @balance.setter
     # NOTE: commented out because of failure noted within `__setattr__`
@@ -134,7 +146,7 @@ class BaseAddress(BaseInterface):
             super().__setattr__(attr, value)
 
     @property
-    def code(self) -> ContractCode:
+    def code(self) -> "ContractCode":
         """
         The raw bytes of the smart-contract code at the address.
         """
@@ -193,7 +205,7 @@ class Address(BaseAddress):
         The raw address type.
 
         Returns:
-            ``AddressType``: An alias to
+            :class:`~ape.types.address.AddressType`: An alias to
             `ChecksumAddress <https://eth-typing.readthedocs.io/en/latest/types.html#checksumaddress>`__.  # noqa: E501
         """
 

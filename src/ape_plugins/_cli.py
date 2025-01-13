@@ -1,19 +1,16 @@
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Tuple
+from typing import TYPE_CHECKING, Any
 
 import click
+from packaging.version import Version
 
-from ape.cli import ape_cli_context, skip_confirmation_option
-from ape.managers.config import CONFIG_FILE_NAME
-from ape.utils import github_client, load_config
-from ape_plugins.utils import (
-    ModifyPluginResultHandler,
-    PluginMetadata,
-    PluginMetadataList,
-    PluginType,
-)
+from ape.cli.options import ape_cli_context, skip_confirmation_option
+from ape.logging import logger
+
+if TYPE_CHECKING:
+    from ape.plugins._utils import PluginMetadata
 
 
 @click.group(short_help="Manage ape plugins")
@@ -29,33 +26,50 @@ def plugins_argument():
     or plugins loaded from the local config file.
     """
 
-    def load_from_file(ctx, file_path: Path) -> List[PluginMetadata]:
-        if file_path.is_dir() and (file_path / CONFIG_FILE_NAME).is_file():
-            file_path = file_path / CONFIG_FILE_NAME
+    def load_from_file(ctx, file_path: Path) -> list["PluginMetadata"]:
+        from ape.plugins._utils import PluginMetadata
+        from ape.utils.misc import load_config
+
+        if file_path.is_dir():
+            name_options = (
+                "ape-config.yaml",
+                "ape-config.yml",
+                "ape-config.json",
+                "pyproject.toml",
+            )
+            for option in name_options:
+                if (file_path / option).is_file():
+                    file_path = file_path / option
+                    break
 
         if file_path.is_file():
             config = load_config(file_path)
             if plugins := config.get("plugins"):
-                return [PluginMetadata.parse_obj(d) for d in plugins]
+                return [PluginMetadata.model_validate(d) for d in plugins]
 
         ctx.obj.logger.warning(f"No plugins found at '{file_path}'.")
         return []
 
-    def callback(ctx, param, value: Tuple[str]):
+    def callback(ctx, param, value: tuple[str]):
+        from ape.plugins._utils import PluginMetadata
+
+        res = []
         if not value:
             ctx.obj.abort("You must give at least one requirement to install.")
 
         elif len(value) == 1:
             # User passed in a path to a file.
             file_path = Path(value[0]).expanduser().resolve()
-            return (
+            res = (
                 load_from_file(ctx, file_path)
                 if file_path.exists()
                 else [PluginMetadata(name=v) for v in value[0].split(" ")]
             )
 
         else:
-            return [PluginMetadata(name=v) for v in value]
+            res = [PluginMetadata(name=v) for v in value]
+
+        return res
 
     return click.argument(
         "plugins",
@@ -77,6 +91,8 @@ def upgrade_option(help: str = "", **kwargs):
 
 
 def _display_all_callback(ctx, param, value):
+    from ape.plugins._utils import PluginType
+
     return (
         (PluginType.CORE, PluginType.INSTALLED, PluginType.THIRD_PARTY, PluginType.AVAILABLE)
         if value
@@ -85,6 +101,7 @@ def _display_all_callback(ctx, param, value):
 
 
 @cli.command(name="list", short_help="Display plugins")
+@ape_cli_context()
 @click.option(
     "-a",
     "--all",
@@ -94,11 +111,11 @@ def _display_all_callback(ctx, param, value):
     callback=_display_all_callback,
     help="Display all plugins installed and available (including Core)",
 )
-@ape_cli_context()
 def _list(cli_ctx, to_display):
-    registered_plugins = cli_ctx.plugin_manager.registered_plugins
-    available_plugins = github_client.available_plugins
-    metadata = PluginMetadataList.from_package_names(registered_plugins.union(available_plugins))
+    from ape.plugins._utils import PluginMetadataList, PluginType
+
+    include_available = PluginType.AVAILABLE in to_display
+    metadata = PluginMetadataList.load(cli_ctx.plugin_manager, include_available=include_available)
     if output := metadata.to_str(include=to_display):
         click.echo(output)
         if not metadata.installed and not metadata.third_party:
@@ -113,76 +130,49 @@ def _list(cli_ctx, to_display):
 @plugins_argument()
 @skip_confirmation_option("Don't ask for confirmation to install the plugins")
 @upgrade_option(help="Upgrade the plugin to the newest available version")
-def install(cli_ctx, plugins, skip_confirmation, upgrade):
+def install(cli_ctx, plugins: list["PluginMetadata"], skip_confirmation: bool, upgrade: bool):
     """Install plugins"""
 
     failures_occurred = False
+
+    # Track the operations until the end. This way, if validation
+    # fails on one, we can error-out before installing anything.
+    install_list: list[dict[str, Any]] = []
+
     for plugin in plugins:
-        if plugin.in_core:
-            cli_ctx.logger.error(f"Cannot install core 'ape' plugin '{plugin.name}'.")
+        result = plugin._prepare_install(upgrade=upgrade, skip_confirmation=skip_confirmation)
+        if result:
+            install_list.append(result)
+        else:
             failures_occurred = True
+
+    # NOTE: Be *extremely careful* with `subprocess.call`, as it modifies the user's
+    #       installed packages, to potentially catastrophic results
+    for op in install_list:
+        if not op:
             continue
 
-        elif plugin.version is not None and upgrade:
-            cli_ctx.logger.error(
-                f"Cannot use '--upgrade' option when specifying "
-                f"a version for plugin '{plugin.name}'."
-            )
-            failures_occurred = True
-            continue
-
-        # if plugin is installed but not trusted. It must be a third party
-        elif plugin.is_third_party:
-            cli_ctx.logger.warning(f"Plugin '{plugin.name}' is not an trusted plugin.")
-
-        result_handler = ModifyPluginResultHandler(plugin)
-        pip_arguments = [sys.executable, "-m", "pip", "install"]
-
-        if upgrade:
-            cli_ctx.logger.info(f"Upgrading '{plugin.name}'...")
-            pip_arguments.extend(("--upgrade", plugin.package_name))
-
-            version_before = plugin.current_version
-
-            # NOTE: There can issues when --quiet is not at the end.
-            pip_arguments.append("--quiet")
-
-            result = subprocess.call(pip_arguments)
-
-            # Returns ``True`` when upgraded successfully
-            failures_occurred = not result_handler.handle_upgrade_result(result, version_before)
-
-        elif plugin.can_install and (
-            plugin.is_available
-            or skip_confirmation
-            or click.confirm(f"Install the '{plugin.name}' plugin?")
-        ):
-            cli_ctx.logger.info(f"Installing {plugin}...")
-
-            # NOTE: There can issues when --quiet is not at the end.
-            pip_arguments.extend((plugin.install_str, "--quiet"))
-
-            # NOTE: Be *extremely careful* with this command, as it modifies the user's
-            #       installed packages, to potentially catastrophic results
-            # NOTE: This is not abstracted into another function *on purpose*
-            result = subprocess.call(pip_arguments)
-            failures_occurred = not result_handler.handle_install_result(result)
+        handler = op["result_handler"]
+        call_result = subprocess.call(op["args"])
+        if "version_before" in op:
+            success = not handler.handle_upgrade_result(call_result, op["version_before"])
+            failures_occurred = not failures_occurred and success
 
         else:
-            cli_ctx.logger.warning(
-                f"'{plugin.name}' is already installed. " f"Did you mean to include '--upgrade'."
-            )
+            success = not handler.handle_install_result(call_result)
+            failures_occurred = not failures_occurred and success
 
     if failures_occurred:
         sys.exit(1)
 
 
 @cli.command()
-@plugins_argument()
 @ape_cli_context()
+@plugins_argument()
 @skip_confirmation_option("Don't ask for confirmation to install the plugins")
 def uninstall(cli_ctx, plugins, skip_confirmation):
     """Uninstall plugins"""
+    from ape.plugins._utils import ModifyPluginResultHandler
 
     failures_occurred = False
     did_warn_about_version = False
@@ -213,13 +203,110 @@ def uninstall(cli_ctx, plugins, skip_confirmation):
             skip_confirmation or click.confirm(f"Remove plugin '{plugin}'?")
         ):
             cli_ctx.logger.info(f"Uninstalling '{plugin.name}'...")
-            args = [sys.executable, "-m", "pip", "uninstall", "-y", plugin.package_name, "--quiet"]
+            arguments = plugin._get_uninstall_args()
 
             # NOTE: Be *extremely careful* with this command, as it modifies the user's
             #       installed packages, to potentially catastrophic results
             # NOTE: This is not abstracted into another function *on purpose*
-            result = subprocess.call(args)
+            result = subprocess.call(arguments)
             failures_occurred = not result_handler.handle_uninstall_result(result)
 
     if failures_occurred:
         sys.exit(1)
+
+
+@cli.command()
+def update():
+    """
+    Update Ape and all plugins to the next version
+    """
+    from ape.plugins._utils import ape_version
+
+    _change_version(ape_version.next_version_range)
+
+
+def _version_callack(ctx, param, value):
+    obj = Version(value)
+    version_str = f"0.{obj.minor}.0" if obj.major == 0 else f"{obj.major}.0.0"
+    return f"=={version_str}"
+
+
+@cli.command()
+@click.argument("version", callback=_version_callack)
+def change_version(version):
+    """
+    Change ape and all plugins version
+    """
+
+    _change_version(version)
+
+
+def _install(name, spec, exit_on_fail: bool = True) -> int:
+    """
+    Helper function to install or update a Python package using pip.
+
+    Args:
+      name (str): The package name.
+      spec (str): Version specifier, e.g., '==1.0.0', '>=1.0.0', etc.
+      exit_on_fail (bool): Set to ``False`` to not exit on fail.
+
+    Returns:
+        The process return-code.
+    """
+    from ape.plugins._utils import PIP_COMMAND
+
+    arguments = [*PIP_COMMAND, "install", f"{name}{spec}", "--quiet"]
+
+    # Run the installation process and capture output for error checking
+    completed_process = subprocess.run(
+        arguments,
+        capture_output=True,
+        text=True,  # Output as string
+        check=False,  # Allow manual error handling
+    )
+
+    # Check for installation errors
+    if completed_process.returncode != 0:
+        message = f"Failed to install/update {name}"
+        if completed_process.stdout:
+            message += f": {completed_process.stdout}"
+        if completed_process.stderr:
+            message += f": {completed_process.stderr}"
+
+        logger.error(message)
+        if exit_on_fail:
+            sys.exit(completed_process.returncode)
+    else:
+        logger.info(f"Successfully installed/updated {name}")
+
+    return completed_process.returncode
+
+
+def _change_version(spec: str):
+    # Update all the plugins.
+    # This will also update core Ape.
+    # NOTE: It is possible plugins may depend on each other and may update in
+    #   an order causing some error codes to pop-up, so we ignore those for now.
+    from ape.plugins._utils import get_plugin_dists
+
+    plugin_retcode = 0
+    for plugin in get_plugin_dists():
+        logger.info(f"Updating {plugin} ...")
+        name = plugin.split("=")[0].strip()
+        retcode = _install(name, spec, exit_on_fail=False)
+        if retcode != 0:
+            plugin_retcode = retcode
+        # else: errors logged in _install separately
+
+    # This check is for verifying the update and shouldn't actually do anything.
+    logger.info("Updating Ape core ...")
+    ape_retcode = _install("eth-ape", spec)
+    if ape_retcode == 0 and plugin_retcode == 0:
+        prefix = "Ape"
+        if plugin_retcode == 0:
+            prefix = f"{prefix} and plugins"
+
+        logger.success(f"{prefix} have successfully upgraded.")
+    # else: _install logs errors already.
+
+    sys.exit(ape_retcode | plugin_retcode)

@@ -1,7 +1,8 @@
-from typing import List
+from typing import NamedTuple
 
 import pytest
-from ethpm_types import ContractType, HexBytes
+from eth_pydantic_types import HexBytes
+from ethpm_types import ContractType
 
 from ape.exceptions import APINotImplementedError
 from ape_ethereum.multicall import Call
@@ -11,14 +12,14 @@ from ape_ethereum.multicall.exceptions import UnsupportedChainError
 RETURNDATA = HexBytes("0x4a821464")
 
 
-class ReturndataClass:
-    returnData: List[HexBytes] = [RETURNDATA]
+class ReturnData(NamedTuple):
+    success: bool
+    returnData: bytes
 
 
 RETURNDATA_PARAMS = {
-    "result": ReturndataClass(),
-    # Happens when using Call() for a single call.
-    "result_single": [False, RETURNDATA],
+    "result_ok": (ReturnData(True, RETURNDATA), RETURNDATA),
+    "result_fail": (ReturnData(False, RETURNDATA), None),
 }
 
 
@@ -27,7 +28,7 @@ def undeployed_multicall(chain):
     # NOTE: Still has the ability to decode/encode inputs.
     return chain.contracts.instance_at(
         MULTICALL3_ADDRESS,
-        contract_type=ContractType.parse_obj(MULTICALL3_CONTRACT_TYPE),
+        contract_type=ContractType.model_validate(MULTICALL3_CONTRACT_TYPE),
     )
 
 
@@ -52,7 +53,10 @@ def test_unsupported_chain(call_handler_with_struct_input, struct_input_for_call
 
 
 def test_aggregate3_input(
-    aggregate3, call_handler_with_struct_input, struct_input_for_call, vyper_contract_instance
+    aggregate3,
+    call_handler_with_struct_input,
+    struct_input_for_call,
+    vyper_contract_instance,
 ):
     call = Call()
 
@@ -66,7 +70,7 @@ def test_aggregate3_input(
 
 @pytest.mark.parametrize("returndata_key", RETURNDATA_PARAMS)
 def test_returndata(returndata_key):
-    returndata = RETURNDATA_PARAMS[returndata_key]
+    result, output = RETURNDATA_PARAMS[returndata_key]
     call = Call()
-    call._result = returndata  # type: ignore
-    assert call.returnData[0] == HexBytes("0x4a821464")
+    call._result = [result]  # type: ignore
+    assert call.returnData[0] == output

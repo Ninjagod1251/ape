@@ -1,16 +1,28 @@
-import json
+from collections.abc import Collection, Iterator
 from functools import cached_property
-from typing import Dict, Iterator, List, Optional, Set, Union
+from typing import TYPE_CHECKING, Optional, Union
 
-import yaml
+from evmchains import PUBLIC_CHAIN_META
 
-from ape.api import EcosystemAPI, ProviderAPI, ProviderContextManager
-from ape.api.networks import NetworkAPI
-from ape.exceptions import ApeAttributeError, EcosystemNotFoundError, NetworkError
+from ape.api.networks import ProviderContextManager
+from ape.exceptions import EcosystemNotFoundError, NetworkError, NetworkNotFoundError
 from ape.managers.base import BaseManager
+from ape.utils.basemodel import (
+    ExtraAttributesMixin,
+    ExtraModelAttributes,
+    get_attribute_with_extras,
+    only_raise_attribute_error,
+)
+from ape.utils.misc import _dict_overlay, log_instead_of_fail
+from ape_ethereum.provider import EthereumNodeProvider
+
+if TYPE_CHECKING:
+    from ape.api.networks import EcosystemAPI, NetworkAPI
+    from ape.api.providers import ProviderAPI
+    from ape.utils.rpc import RPCHeaders
 
 
-class NetworkManager(BaseManager):
+class NetworkManager(BaseManager, ExtraAttributesMixin):
     """
     The set of all blockchain network ecosystems registered from the plugin system.
     Typically, you set the provider via the ``--network`` command line option.
@@ -21,33 +33,44 @@ class NetworkManager(BaseManager):
         from ape import networks
 
         # "networks" is the NetworkManager singleton
-        with networks.ethereum.mainnet.use_provider("geth"):
+        with networks.ethereum.mainnet.use_provider("node"):
            ...
     """
 
-    _active_provider: Optional[ProviderAPI] = None
-    _default: Optional[str] = None
+    _active_provider: Optional["ProviderAPI"] = None
+    _default_ecosystem_name: Optional[str] = None
 
-    def __repr__(self):
+    # For adhoc adding custom networks, or incorporating some defined
+    # in other projects' configs.
+    _custom_networks: list[dict] = []
+
+    @log_instead_of_fail(default="<NetworkManager>")
+    def __repr__(self) -> str:
         provider = self.active_provider
-        class_name = self.__class__.__name__
+        class_name = NetworkManager.__name__
         content = f"{class_name} active_provider={repr(provider)}" if provider else class_name
         return f"<{content}>"
 
     @property
-    def active_provider(self) -> Optional[ProviderAPI]:
+    def active_provider(self) -> Optional["ProviderAPI"]:
         """
         The currently connected provider if one exists. Otherwise, returns ``None``.
         """
-
         return self._active_provider
 
     @active_provider.setter
-    def active_provider(self, new_value: ProviderAPI):
+    def active_provider(self, new_value: "ProviderAPI"):
         self._active_provider = new_value
 
     @property
-    def network(self) -> NetworkAPI:
+    def connected(self) -> bool:
+        """
+        ``True`` when there is an active provider.
+        """
+        return self.active_provider is not None
+
+    @property
+    def network(self) -> "NetworkAPI":
         """
         The current network if connected to one.
 
@@ -61,7 +84,7 @@ class NetworkManager(BaseManager):
         return self.provider.network
 
     @property
-    def ecosystem(self) -> EcosystemAPI:
+    def ecosystem(self) -> "EcosystemAPI":
         """
         The current ecosystem if connected to one.
 
@@ -74,10 +97,27 @@ class NetworkManager(BaseManager):
         """
         return self.network.ecosystem
 
+    def get_request_headers(
+        self, ecosystem_name: str, network_name: str, provider_name: str
+    ) -> "RPCHeaders":
+        """
+        All request headers to be used when connecting to this network.
+        """
+        ecosystem = self.get_ecosystem(ecosystem_name)
+        network = ecosystem.get_network(network_name)
+        provider = network.get_provider(provider_name)
+        headers = self.config_manager._get_request_headers()
+        for obj in (ecosystem, network, provider):
+            for key, value in obj._get_request_headers().items():
+                headers[key] = value
+
+        return headers
+
     def fork(
         self,
         provider_name: Optional[str] = None,
-        provider_settings: Optional[Dict] = None,
+        provider_settings: Optional[dict] = None,
+        block_number: Optional[int] = None,
     ) -> ProviderContextManager:
         """
         Fork the currently connected network.
@@ -87,100 +127,234 @@ class NetworkManager(BaseManager):
               When ``None``, returns the default provider.
             provider_settings (dict, optional): Settings to apply to the provider. Defaults to
               ``None``.
+            block_number (Optional[int]): Optionally specify the block number you wish to fork.
+              Negative block numbers are relative to HEAD. Defaults to the configured fork
+              block number or HEAD.
 
         Returns:
             :class:`~ape.api.networks.ProviderContextManager`
         """
-        forked_network = self.ecosystem.get_network(f"{self.network.name}-fork")
+        network_name = self.network.name
+        is_fork_already = network_name.endswith("-fork")
+        forked_network_name = network_name if is_fork_already else f"{network_name}-fork"
+        try:
+            forked_network = self.ecosystem.get_network(forked_network_name)
+        except NetworkNotFoundError as err:
+            raise NetworkError(f"Unable to fork network '{network_name}'.") from err
+
         provider_settings = provider_settings or {}
+        if is_fork_already and "host" not in provider_settings:
+            # Forking a fork- to ensure is using a different Port,
+            # use the "auto-port" feature.
+            provider_settings["host"] = "auto"
 
-        if provider_name:
-            return forked_network.use_provider(
-                provider_name, provider_settings, disconnect_after=True
-            )
+        fork_settings = {}
+        if block_number is not None:
+            # Negative block_number means relative to HEAD
+            if block_number < 0:
+                latest_block_number = self.provider.get_block("latest").number or 0
+                block_number = latest_block_number + block_number
+                if block_number < 0:
+                    # If the block number is still negative, they have forked past genesis.
+                    raise NetworkError("Unable to fork past genesis block.")
 
-        return forked_network.use_default_provider(provider_settings, disconnect_after=True)
+            # Ensure block_number is set in config for this network
+            fork_settings["block_number"] = block_number
+
+        if uri := self.provider.connection_str:
+            fork_settings["upstream_provider"] = uri
+
+        _dict_overlay(
+            provider_settings,
+            {"fork": {self.ecosystem.name: {self.network.name: fork_settings}}},
+        )
+
+        shared_kwargs: dict = {"provider_settings": provider_settings, "disconnect_after": True}
+        return (
+            forked_network.use_provider(provider_name, **shared_kwargs)
+            if provider_name
+            else forked_network.use_default_provider(**shared_kwargs)
+        )
 
     @property
-    def ecosystem_names(self) -> Set[str]:
+    def ecosystem_names(self) -> set[str]:
         """
         The set of all ecosystem names in ``ape``.
         """
-
-        return {e[0] for e in self.plugin_manager.ecosystems}
+        return set(self.ecosystems)
 
     @property
-    def network_names(self) -> Set[str]:
+    def network_names(self) -> set[str]:
         """
         The set of all network names in ``ape``.
         """
 
-        names = set()
-        for ecosystem in self.ecosystems.values():
-            for network in ecosystem.networks.keys():
-                names.add(network)
-
-        return names
+        return {n for e in self.ecosystems.values() for n in e.networks}
 
     @property
-    def provider_names(self) -> Set[str]:
+    def provider_names(self) -> set[str]:
         """
         The set of all provider names in ``ape``.
         """
 
-        names = set()
-        for ecosystem in self.ecosystems.values():
-            for network in ecosystem.networks.values():
-                for provider in network.providers.keys():
-                    names.add(provider)
+        return set(
+            provider
+            for ecosystem in self.ecosystems.values()
+            for network in ecosystem.networks.values()
+            for provider in network.providers
+        )
 
-        return names
+    @property
+    def custom_networks(self) -> list[dict]:
+        """
+        Custom network data defined in various ape-config files
+        or added adhoc to the network manager.
+        """
+        return [*self._custom_networks_from_config, *self._custom_networks]
 
     @cached_property
-    def ecosystems(self) -> Dict[str, EcosystemAPI]:
+    def _custom_networks_from_config(self) -> list[dict]:
+        return [
+            n.model_dump(by_alias=True)
+            for n in self.config_manager.get_config("networks").get("custom", [])
+        ]
+
+    @property
+    def ecosystems(self) -> dict[str, "EcosystemAPI"]:
         """
         All the registered ecosystems in ``ape``, such as ``ethereum``.
         """
+        return {
+            **self._evmchains_ecosystems,
+            **self._plugin_ecosystems,
+            **self._custom_ecosystems,
+        }
 
-        def to_kwargs(name: str) -> Dict:
-            return {
-                "name": name,
-                "data_folder": self.config_manager.DATA_FOLDER / name,
-                "request_header": self.config_manager.REQUEST_HEADER,
-            }
+    @cached_property
+    def _plugin_ecosystems(self) -> dict[str, "EcosystemAPI"]:
+        # Load plugins (possibly for first time).
+        plugins: list[tuple] = self.plugin_manager.ecosystems
+        return {n: cls(name=n) for n, cls in plugins}
 
-        ecosystems = self.plugin_manager.ecosystems
-        return {n: cls(**to_kwargs(n)) for n, cls in ecosystems}  # type: ignore
+    @cached_property
+    def _custom_ecosystems(self) -> dict[str, "EcosystemAPI"]:
+        custom_networks: list = self.custom_networks
+        plugin_ecosystems = self._plugin_ecosystems
+        evm_chains = self._evmchains_ecosystems
+        custom_ecosystems: dict[str, "EcosystemAPI"] = {}
+        for custom_network in custom_networks:
+            ecosystem_name = custom_network["ecosystem"]
+            if (
+                ecosystem_name in plugin_ecosystems
+                or ecosystem_name in evm_chains
+                or ecosystem_name in custom_ecosystems
+            ):
+                # Already included in a prior network.
+                continue
 
-    def create_adhoc_geth_provider(self, uri: str) -> ProviderAPI:
+            base_ecosystem_name = (
+                custom_network.get("base_ecosystem_plugin") or self.default_ecosystem_name
+            )
+
+            if base_ecosystem_name not in plugin_ecosystems:
+                name = custom_network.get("name", "?")
+                if eco := custom_network.get("ecosystem"):
+                    name = f"{eco}:{name}"
+
+                msg = (
+                    f"Custom network '{name}' specified unknown base-ecosystem class "
+                    f"'{base_ecosystem_name}'. Are you missing plugin 'ape-{base_ecosystem_name}'?"
+                )
+                raise NetworkError(msg)
+
+            existing_cls = plugin_ecosystems[base_ecosystem_name]
+            ecosystem_cls = existing_cls.model_copy(
+                update={"name": ecosystem_name},
+                cache_clear=("_networks_from_plugins", "_networks_from_evmchains"),
+            )
+            custom_ecosystems[ecosystem_name] = ecosystem_cls
+
+        return custom_ecosystems
+
+    @cached_property
+    def _evmchains_ecosystems(self) -> dict[str, "EcosystemAPI"]:
+        ecosystems: dict[str, "EcosystemAPI"] = {}
+        for name in PUBLIC_CHAIN_META:
+            ecosystem_name = name.lower().replace(" ", "-")
+            symbol = None
+            for net in PUBLIC_CHAIN_META[ecosystem_name].values():
+                if not (native_currency := net.get("nativeCurrency")):
+                    continue
+
+                if "symbol" not in native_currency:
+                    continue
+
+                symbol = native_currency["symbol"]
+                break
+
+            symbol = symbol or "ETH"
+
+            # Is an EVM chain, can automatically make a class using evm-chains.
+            evm_class = self._plugin_ecosystems["ethereum"].__class__
+            ecosystems[name] = evm_class(name=ecosystem_name, fee_token_symbol=symbol)
+
+        return ecosystems
+
+    def create_custom_provider(
+        self,
+        connection_str: str,
+        provider_cls: type["ProviderAPI"] = EthereumNodeProvider,
+        provider_name: Optional[str] = None,
+    ) -> "ProviderAPI":
         """
-        Create an ad-hoc connection to a URI using the GethProvider core plugin.
+        Create a custom connection to a URI using the EthereumNodeProvider provider.
         **NOTE**: This provider will assume EVM-like behavior and this is generally not recommended.
         Use plugins when possible!
 
         Args:
-            uri (str): The URI of the node.
+            connection_str (str): The connection string of the node, such as its URI
+              when using HTTP.
+            provider_cls (type[:class:`~ape.api.providers.ProviderAPI`]): Defaults to
+              :class:`~ape_ethereum.providers.EthereumNodeProvider`.
+            provider_name (Optional[str]): The name of the provider. Defaults to best guess.
 
         Returns:
             :class:`~ape.api.providers.ProviderAPI`: The Geth provider
               implementation that comes with Ape.
         """
 
-        geth_class = None
-        for plugin_name, (_, _, provider_class) in self.plugin_manager.providers:
-            if plugin_name == "geth":
-                geth_class = provider_class
-                break
+        network = self.ethereum.custom_network
 
-        if geth_class is None:
-            raise NetworkError("Core Geth plugin missing.")
+        if provider_name is None:
+            if issubclass(provider_cls, EthereumNodeProvider):
+                name = "node"
 
-        network = NetworkAPI.create_adhoc_network()
-        return geth_class(
+            elif cls_name := getattr(provider_cls, "name", None):
+                name = cls_name
+
+            elif cls_name := getattr(provider_cls, "__name__"):
+                name = cls_name.lower()
+
+            else:
+                # Would be unusual for this to happen though.
+                name = "provider"
+
+        else:
+            name = provider_name
+
+        provider_settings: dict = {}
+        if connection_str.startswith("https://") or connection_str.startswith("http://"):
+            provider_settings["uri"] = connection_str
+        elif connection_str.endswith(".ipc"):
+            provider_settings["ipc_path"] = connection_str
+        else:
+            raise NetworkError(f"Scheme for '{connection_str}' not yet supported.")
+
+        return (provider_cls or EthereumNodeProvider)(
+            name=name,
             network=network,
-            provider_settings={"uri": uri},
-            data_folder=network.data_folder,
-            request_header=network.request_header,
+            provider_settings=provider_settings,
+            data_folder=self.ethereum.data_folder / name,
         )
 
     def __iter__(self) -> Iterator[str]:
@@ -192,26 +366,15 @@ class NetworkManager(BaseManager):
         """
         yield from self.ecosystems
 
-    def __getitem__(self, ecosystem_name: str) -> EcosystemAPI:
-        """
-        Get an ecosystem by name.
+    def __ape_extra_attributes__(self) -> Iterator[ExtraModelAttributes]:
+        yield ExtraModelAttributes(
+            name="ecosystems",
+            attributes=lambda: self.ecosystems,
+            include_getitem=True,
+        )
 
-        Raises:
-            :class:`~ape.exceptions.NetworkError`: When the given ecosystem name is
-              unknown.
-
-        Args:
-            ecosystem_name (str): The name of the ecosystem to get.
-
-        Returns:
-            :class:`~ape.api.networks.EcosystemAPI`
-        """
-        if ecosystem_name not in self.ecosystems:
-            raise IndexError(f"Unknown ecosystem '{ecosystem_name}'.")
-
-        return self.ecosystems[ecosystem_name]
-
-    def __getattr__(self, attr_name: str) -> EcosystemAPI:
+    @only_raise_attribute_error
+    def __getattr__(self, attr_name: str) -> "EcosystemAPI":
         """
         Get an ecosystem via ``.`` access.
 
@@ -225,31 +388,20 @@ class NetworkManager(BaseManager):
 
             eth = networks.ethereum
         """
-
-        if attr_name not in self.ecosystems:
-            # First try alternating the hyphen and underscores.
-            attr_name_fix = (
-                attr_name.replace("_", "-") if "_" in attr_name else attr_name.replace("-", "_")
-            )
-            if attr_name_fix in self.ecosystems:
-                return self.ecosystems[attr_name_fix]
-
-            raise ApeAttributeError(f"{self.__class__.__name__} has no attribute '{attr_name}'.")
-
-        return self.ecosystems[attr_name]
+        return get_attribute_with_extras(self, attr_name)
 
     def get_network_choices(
         self,
-        ecosystem_filter: Optional[Union[List[str], str]] = None,
-        network_filter: Optional[Union[List[str], str]] = None,
-        provider_filter: Optional[Union[List[str], str]] = None,
+        ecosystem_filter: Optional[Union[list[str], str]] = None,
+        network_filter: Optional[Union[list[str], str]] = None,
+        provider_filter: Optional[Union[list[str], str]] = None,
     ) -> Iterator[str]:
         """
         The set of all possible network choices available as a "network selection"
         e.g. ``--network [ECOSYSTEM:NETWORK:PROVIDER]``.
 
         Each value is in the form ``ecosystem:network:provider`` and shortened options also
-        appear in the list. For example, ``::geth`` would default to ``:ethereum:local:geth``
+        appear in the list. For example, ``::node`` would default to ``:ethereum:local:node``
         and both will be in the returned list. The values come from each
         :class:`~ape.api.providers.ProviderAPI` that is installed.
 
@@ -257,11 +409,11 @@ class NetworkManager(BaseManager):
         combinations.
 
         Args:
-            ecosystem_filter (Optional[Union[List[str], str]]): Get only the specified ecosystems.
+            ecosystem_filter (Optional[Union[list[str], str]]): Get only the specified ecosystems.
               Defaults to getting all ecosystems.
-            network_filter (Optional[Union[List[str], str]]): Get only the specified networks.
+            network_filter (Optional[Union[list[str], str]]): Get only the specified networks.
               Defaults to getting all networks in ecosystems.
-            provider_filter (Optional[Union[List[str], str]]): Get only the specified providers.
+            provider_filter (Optional[Union[list[str], str]]): Get only the specified providers.
               Defaults to getting all providers in networks.
 
         Returns:
@@ -301,16 +453,17 @@ class NetworkManager(BaseManager):
                 for provider_name in providers:
                     if (
                         ecosystem_name == self.default_ecosystem.name
-                        and network_name == ecosystem.default_network
+                        and network_name == ecosystem.default_network_name
                     ):
                         yield f"::{provider_name}"
 
-                    elif ecosystem_name == self.default_ecosystem.name:
+                    if ecosystem_name == self.default_ecosystem.name:
                         yield f":{network_name}:{provider_name}"
 
-                    elif network_name == ecosystem.default_network:
+                    if network_name == ecosystem.default_network_name:
                         yield f"{ecosystem_name}::{provider_name}"
 
+                    # Always include the full path as an option.
                     yield f"{ecosystem_name}:{network_name}:{provider_name}"
 
                 # Providers were yielded if we reached this point.
@@ -322,7 +475,7 @@ class NetworkManager(BaseManager):
             if ecosystem_has_providers:
                 yield ecosystem_name
 
-    def get_ecosystem(self, ecosystem_name: str) -> EcosystemAPI:
+    def get_ecosystem(self, ecosystem_name: str) -> "EcosystemAPI":
         """
         Get the ecosystem for the given name.
 
@@ -335,17 +488,51 @@ class NetworkManager(BaseManager):
         Returns:
             :class:`~ape.api.networks.EcosystemAPI`
         """
+        # NOTE: This method purposely avoids "just checking self.ecosystems"
+        #   for performance reasons and exiting the search as early as possible.
+        ecosystem_name = ecosystem_name.lower().replace(" ", "-")
+        try:
+            return self._plugin_ecosystems[ecosystem_name]
+        except KeyError:
+            pass
 
-        if ecosystem_name not in self.ecosystem_names:
-            raise EcosystemNotFoundError(ecosystem_name, options=self.ecosystem_names)
+        # Check if custom.
+        try:
+            return self._custom_ecosystems[ecosystem_name]
+        except KeyError:
+            pass
 
-        return self.ecosystems[ecosystem_name]
+        if ecosystem := self._get_ecosystem_from_evmchains(ecosystem_name):
+            return ecosystem
+
+        raise EcosystemNotFoundError(ecosystem_name, options=self.ecosystem_names)
+
+    def _get_ecosystem_from_evmchains(self, ecosystem_name: str) -> Optional["EcosystemAPI"]:
+        if ecosystem_name not in PUBLIC_CHAIN_META:
+            return None
+
+        symbol = None
+        for net in PUBLIC_CHAIN_META[ecosystem_name].values():
+            if not (native_currency := net.get("nativeCurrency")):
+                continue
+
+            if "symbol" not in native_currency:
+                continue
+
+            symbol = native_currency["symbol"]
+            break
+
+        symbol = symbol or "ETH"
+
+        # Is an EVM chain, can automatically make a class using evm-chains.
+        evm_class = self._plugin_ecosystems["ethereum"].__class__
+        return evm_class(name=ecosystem_name, fee_token_symbol=symbol)
 
     def get_provider_from_choice(
         self,
         network_choice: Optional[str] = None,
-        provider_settings: Optional[Dict] = None,
-    ) -> ProviderAPI:
+        provider_settings: Optional[dict] = None,
+    ) -> "ProviderAPI":
         """
         Get a :class:`~ape.api.providers.ProviderAPI` from a network choice.
         A network choice is any value returned from
@@ -366,22 +553,23 @@ class NetworkManager(BaseManager):
         Returns:
             :class:`~ape.api.providers.ProviderAPI`
         """
-
         if network_choice is None:
             default_network = self.default_ecosystem.default_network
-            return self.default_ecosystem[default_network].get_provider(
-                provider_settings=provider_settings
-            )
+            return default_network.get_provider(provider_settings=provider_settings)
 
-        elif network_choice.startswith("http://") or network_choice.startswith("https://"):
-            return self.create_adhoc_geth_provider(network_choice)
+        elif _is_adhoc_url(network_choice):
+            # Custom network w/o ecosystem & network spec.
+            return self.create_custom_provider(network_choice)
 
         selections = network_choice.split(":")
 
         # NOTE: Handle case when URI is passed e.g. "http://..."
         if len(selections) > 3:
-            selections[2] = ":".join(selections[2:])
+            provider_value = ":".join(selections[2:])
+            selections[2] = provider_value
             selections = selections[:3]
+            if _is_adhoc_url(provider_value):
+                selections[1] = selections[1] or "custom"
 
         if selections == network_choice or len(selections) == 1:
             # Either split didn't work (in which case it matches the start)
@@ -390,20 +578,22 @@ class NetworkManager(BaseManager):
             # By default, the "local" network should be specified for
             # any ecosystem (this should not correspond to a production chain)
             default_network = ecosystem.default_network
-            return ecosystem[default_network].get_provider(provider_settings=provider_settings)
+            return default_network.get_provider(provider_settings=provider_settings)
 
         elif len(selections) == 2:
             # Only ecosystem and network were specified, not provider
             ecosystem_name, network_name = selections
             ecosystem = self.get_ecosystem(ecosystem_name or self.default_ecosystem.name)
-            network = ecosystem.get_network(network_name or ecosystem.default_network)
+            network = ecosystem.get_network(network_name or ecosystem.default_network_name)
             return network.get_provider(provider_settings=provider_settings)
 
         elif len(selections) == 3:
             # Everything is specified, use specified provider for ecosystem and network
             ecosystem_name, network_name, provider_name = selections
-            ecosystem = self.get_ecosystem(ecosystem_name or self.default_ecosystem.name)
-            network = ecosystem.get_network(network_name or ecosystem.default_network)
+            ecosystem = (
+                self.get_ecosystem(ecosystem_name) if ecosystem_name else self.default_ecosystem
+            )
+            network = ecosystem.get_network(network_name or ecosystem.default_network_name)
             return network.get_provider(
                 provider_name=provider_name, provider_settings=provider_settings
             )
@@ -415,8 +605,9 @@ class NetworkManager(BaseManager):
     def parse_network_choice(
         self,
         network_choice: Optional[str] = None,
-        provider_settings: Optional[Dict] = None,
+        provider_settings: Optional[dict] = None,
         disconnect_after: bool = False,
+        disconnect_on_exit: bool = True,
     ) -> ProviderContextManager:
         """
         Parse a network choice into a context manager for managing a temporary
@@ -436,18 +627,30 @@ class NetworkManager(BaseManager):
             disconnect_after (bool): Set to True to terminate the connection completely
               at the end of context. NOTE: May only work if the network was also started
               from this session.
+            disconnect_on_exit (bool): Whether to disconnect on the exit of the python
+              session. Defaults to ``True``.
 
         Returns:
             :class:`~api.api.networks.ProviderContextManager`
         """
-
         provider = self.get_provider_from_choice(
             network_choice=network_choice, provider_settings=provider_settings
         )
-        return ProviderContextManager(provider=provider, disconnect_after=disconnect_after)
+        return ProviderContextManager(
+            provider=provider,
+            disconnect_after=disconnect_after,
+            disconnect_on_exit=disconnect_on_exit,
+        )
 
     @property
-    def default_ecosystem(self) -> EcosystemAPI:
+    def default_ecosystem_name(self) -> str:
+        if name := self._default_ecosystem_name:
+            return name
+
+        return self.local_project.config.default_ecosystem or "ethereum"
+
+    @cached_property
+    def default_ecosystem(self) -> "EcosystemAPI":
         """
         The default ecosystem. Call
         :meth:`~ape.managers.networks.NetworkManager.set_default_ecosystem` to
@@ -455,21 +658,7 @@ class NetworkManager(BaseManager):
         only a single ecosystem installed, such as Ethereum, then get
         that ecosystem.
         """
-
-        ecosystems = self.ecosystems  # NOTE: Also will load defaults
-
-        if self._default:
-            return ecosystems[self._default]
-
-        elif self.config_manager.default_ecosystem:
-            return ecosystems[self.config_manager.default_ecosystem]
-
-        # If explicit default is not set, use first registered ecosystem
-        elif len(ecosystems) > 0:
-            return list(ecosystems.values())[0]
-
-        else:
-            raise NetworkError("No ecosystems installed.")
+        return self.get_ecosystem(self.default_ecosystem_name)
 
     def set_default_ecosystem(self, ecosystem_name: str):
         """
@@ -482,15 +671,14 @@ class NetworkManager(BaseManager):
             ecosystem_name (str): The name of the ecosystem to set
               as the default.
         """
-
         if ecosystem_name in self.ecosystem_names:
-            self._default = ecosystem_name
+            self._default_ecosystem_name = ecosystem_name
 
         else:
             raise EcosystemNotFoundError(ecosystem_name, options=self.ecosystem_names)
 
     @property
-    def network_data(self) -> Dict:
+    def network_data(self) -> dict:
         """
         Get a dictionary containing data about networks in the ecosystem.
 
@@ -500,63 +688,60 @@ class NetworkManager(BaseManager):
         Returns:
             dict
         """
-        data: Dict = {"ecosystems": []}
+        return self.get_network_data()
+
+    def get_network_data(
+        self,
+        ecosystem_filter: Optional[Collection[str]] = None,
+        network_filter: Optional[Collection[str]] = None,
+        provider_filter: Optional[Collection[str]] = None,
+    ):
+        data: dict = {"ecosystems": []}
 
         for ecosystem_name in self:
-            ecosystem_data = self._get_ecosystem_data(ecosystem_name)
+            if ecosystem_filter and ecosystem_name not in ecosystem_filter:
+                continue
+
+            ecosystem_data = self._get_ecosystem_data(
+                ecosystem_name, network_filter=network_filter, provider_filter=provider_filter
+            )
             data["ecosystems"].append(ecosystem_data)
 
         return data
 
-    def _get_ecosystem_data(self, ecosystem_name: str) -> Dict:
+    def _get_ecosystem_data(
+        self,
+        ecosystem_name: str,
+        network_filter: Optional[Collection[str]] = None,
+        provider_filter: Optional[Collection[str]] = None,
+    ) -> dict:
         ecosystem = self[ecosystem_name]
-        ecosystem_data: Dict = {"name": str(ecosystem_name)}
+        ecosystem_data: dict = {"name": str(ecosystem_name)}
 
         # Only add isDefault key when True
         if ecosystem_name == self.default_ecosystem.name:
             ecosystem_data["isDefault"] = True
 
         ecosystem_data["networks"] = []
+        networks = getattr(self, ecosystem_name).networks
 
-        for network_name in getattr(self, ecosystem_name).networks:
-            network_data = ecosystem.get_network_data(network_name)
+        for network_name in networks:
+            if network_filter and network_name not in network_filter:
+                continue
+
+            network_data = ecosystem.get_network_data(network_name, provider_filter=provider_filter)
             ecosystem_data["networks"].append(network_data)
 
         return ecosystem_data
 
-    @property
-    def networks_yaml(self) -> str:
-        """
-        Get a ``yaml`` ``str`` representing all the networks
-        in all the ecosystems.
-
-        View the result via CLI command ``ape networks list --format yaml``.
-
-        Returns:
-            str
-        """
-
-        data = self.network_data
-        if not isinstance(data, dict):
-            raise TypeError(
-                f"Unexpected network data type: {type(data)}. "
-                f"Expecting dict. YAML dump will fail."
-            )
-
-        try:
-            return yaml.dump(data, sort_keys=True)
-        except ValueError as err:
-            try:
-                data_str = json.dumps(data)
-            except Exception:
-                data_str = str(data)
-
-            raise NetworkError(
-                f"Network data did not dump to YAML: {data_str}\nActual err: {err}"
-            ) from err
+    def _invalidate_cache(self):
+        # NOTE: Called when changing config programmatically.
+        self.__dict__.pop("_custom_ecosystems", None)
+        self.__dict__.pop("_custom_networks_from_config", None)
+        self._custom_networks = []
 
 
-def _validate_filter(arg: Optional[Union[List[str], str]], options: Set[str]):
+def _validate_filter(arg: Optional[Union[list[str], str]], options: set[str]):
     filters = arg or []
 
     if isinstance(filters, str):
@@ -567,3 +752,13 @@ def _validate_filter(arg: Optional[Union[List[str], str]], options: Set[str]):
             raise NetworkError(f"Unknown option '{_filter}'.")
 
     return filters
+
+
+def _is_adhoc_url(value: str) -> bool:
+    return (
+        value.startswith("http://")
+        or value.startswith("https://")
+        or value.startswith("ws://")
+        or value.startswith("wss://")
+        or (value.endswith(".ipc") and ":" not in value)
+    )

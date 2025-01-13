@@ -1,8 +1,12 @@
-from typing import Iterator, Tuple, Type
-
-from ape.api import EcosystemAPI, ExplorerAPI, NetworkAPI, ProviderAPI
+from collections.abc import Iterator
+from typing import TYPE_CHECKING
 
 from .pluggy_patch import PluginType, hookspec
+
+if TYPE_CHECKING:
+    from ape.api.explorers import ExplorerAPI
+    from ape.api.networks import EcosystemAPI, NetworkAPI
+    from ape.api.providers import ProviderAPI
 
 
 class EcosystemPlugin(PluginType):
@@ -13,7 +17,7 @@ class EcosystemPlugin(PluginType):
     """
 
     @hookspec  # type: ignore[empty-body]
-    def ecosystems(self) -> Iterator[Type[EcosystemAPI]]:
+    def ecosystems(self) -> Iterator[type["EcosystemAPI"]]:
         """
         A hook that must return an iterator of :class:`ape.api.networks.EcosystemAPI`
         subclasses.
@@ -25,7 +29,7 @@ class EcosystemPlugin(PluginType):
                 yield Ethereum
 
         Returns:
-            Iterator[Type[:class:`~ape.api.networks.EcosystemAPI`]]
+            Iterator[type[:class:`~ape.api.networks.EcosystemAPI`]]
         """
 
 
@@ -37,7 +41,7 @@ class NetworkPlugin(PluginType):
     """
 
     @hookspec  # type: ignore[empty-body]
-    def networks(self) -> Iterator[Tuple[str, str, Type[NetworkAPI]]]:
+    def networks(self) -> Iterator[tuple[str, str, type["NetworkAPI"]]]:
         """
         A hook that must return an iterator of tuples of:
 
@@ -52,7 +56,7 @@ class NetworkPlugin(PluginType):
                 yield "ethereum", "ShibaChain", ShibaNetwork
 
         Returns:
-            Iterator[tuple[str, str, Type[:class:`~ape.api.networks.NetworkAPI`]]]
+            Iterator[tuple[str, str, type[:class:`~ape.api.networks.NetworkAPI`]]]
         """
 
 
@@ -65,7 +69,9 @@ class ProviderPlugin(PluginType):
     """
 
     @hookspec
-    def providers(self) -> Iterator[Tuple[str, str, Type[ProviderAPI]]]:  # type: ignore[empty-body]
+    def providers(  # type: ignore[empty-body]
+        self,
+    ) -> Iterator[tuple[str, str, type["ProviderAPI"]]]:
         """
         A hook that must return an iterator of tuples of:
 
@@ -80,7 +86,7 @@ class ProviderPlugin(PluginType):
                 yield "ethereum", "local", MyProvider
 
         Returns:
-            Iterator[tuple[str, str, Type[:class:`~ape.api.providers.ProviderAPI`]]]
+            Iterator[tuple[str, str, type[:class:`~ape.api.providers.ProviderAPI`]]]
         """
 
 
@@ -91,7 +97,9 @@ class ExplorerPlugin(PluginType):
     """
 
     @hookspec
-    def explorers(self) -> Iterator[Tuple[str, str, Type[ExplorerAPI]]]:  # type: ignore[empty-body]
+    def explorers(  # type: ignore[empty-body]
+        self,
+    ) -> Iterator[tuple[str, str, type["ExplorerAPI"]]]:
         """
         A hook that must return an iterator of tuples of:
 
@@ -106,5 +114,5 @@ class ExplorerPlugin(PluginType):
                 yield "ethereum", "mainnet", MyBlockExplorer
 
         Returns:
-            Iterator[tuple[str, str, Type[:class:`ape.api.explorers.ExplorerAPI`]]]
+            Iterator[tuple[str, str, type[:class:`ape.api.explorers.ExplorerAPI`]]]
         """

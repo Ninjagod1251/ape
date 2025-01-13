@@ -1,10 +1,13 @@
-from typing import Optional
+from abc import abstractmethod
+from typing import TYPE_CHECKING, Optional
 
-from ethpm_types import ContractType
+from ape.api.networks import NetworkAPI
+from ape.utils.basemodel import BaseInterfaceModel
 
-from ape.api import networks
-from ape.types import AddressType
-from ape.utils import BaseInterfaceModel, abstractmethod
+if TYPE_CHECKING:
+    from ethpm_types import ContractType
+
+    from ape.types.address import AddressType
 
 
 class ExplorerAPI(BaseInterfaceModel):
@@ -14,18 +17,18 @@ class ExplorerAPI(BaseInterfaceModel):
     """
 
     name: str  # Plugin name
-    network: networks.NetworkAPI
+    network: NetworkAPI
 
     @abstractmethod
-    def get_address_url(self, address: AddressType) -> str:
+    def get_address_url(self, address: "AddressType") -> str:
         """
         Get an address URL, such as for a transaction.
 
         Args:
-            address (``AddressType``): The address to get the URL for.
+            address (:class:`~ape.types.address.AddressType`): The address.
 
         Returns:
-            str
+            str: The URL.
         """
 
     @abstractmethod
@@ -37,26 +40,42 @@ class ExplorerAPI(BaseInterfaceModel):
             transaction_hash (str): The transaction hash.
 
         Returns:
-            str
+            str: The URL.
         """
 
     @abstractmethod
-    def get_contract_type(self, address: AddressType) -> Optional[ContractType]:
+    def get_contract_type(self, address: "AddressType") -> Optional["ContractType"]:
         """
-        Get the contract type for a given address if it has been published in an explorer.
+        Get the contract type for a given address if it has been published to this explorer.
 
         Args:
-            address (``AddressType``): The contract address.
+            address (:class:`~ape.types.address.AddressType`): The contract address.
 
         Returns:
             Optional[``ContractType``]: If not published, returns ``None``.
         """
 
     @abstractmethod
-    def publish_contract(self, address: AddressType):
+    def publish_contract(self, address: "AddressType"):
         """
         Publish a contract to the explorer.
 
         Args:
-            address (``AddressType``): The address of the deployed contract.
+            address (:class:`~ape.types.address.AddressType`): The address of the deployed contract.
         """
+
+    @classmethod
+    def supports_chain(cls, chain_id: int) -> bool:
+        """
+        Returns ``True`` when the given chain ID is claimed to be
+        supported by this explorer. Adhoc / custom networks rely on
+        this feature to have automatic-explorer support. Explorer
+        plugins should override this.
+
+        Args:
+            chain_id (int): The chain ID to check.
+
+        Returns:
+            bool
+        """
+        return False

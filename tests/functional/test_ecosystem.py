@@ -1,16 +1,29 @@
-from typing import Any, Dict
+import copy
+import re
+from typing import Any, ClassVar, cast
 
 import pytest
+from eth_pydantic_types import HashBytes32, HexBytes
 from eth_typing import HexAddress, HexStr
-from ethpm_types import HexBytes
+from ethpm_types import ContractType, ErrorABI
 from ethpm_types.abi import ABIType, EventABI, MethodABI
+from evm_trace import CallTreeNode, CallType
 
-from ape.api.networks import LOCAL_NETWORK_NAME
-from ape.exceptions import DecodingError, NetworkNotFoundError
-from ape.types import AddressType
-from ape.utils import DEFAULT_LOCAL_TRANSACTION_ACCEPTANCE_TIMEOUT
-from ape_ethereum.ecosystem import BLUEPRINT_HEADER, Block
-from ape_ethereum.transactions import TransactionType
+from ape.api.networks import ForkedNetworkAPI, NetworkAPI
+from ape.exceptions import CustomError, DecodingError, NetworkError, NetworkNotFoundError
+from ape.types.address import AddressType
+from ape.types.units import CurrencyValueComparable
+from ape.utils.misc import DEFAULT_LOCAL_TRANSACTION_ACCEPTANCE_TIMEOUT, LOCAL_NETWORK_NAME
+from ape_ethereum.ecosystem import BLUEPRINT_HEADER, BaseEthereumConfig, Block, Ethereum
+from ape_ethereum.trace import TransactionTrace
+from ape_ethereum.transactions import (
+    DynamicFeeTransaction,
+    Receipt,
+    SharedBlobReceipt,
+    SharedBlobTransaction,
+    StaticFeeTransaction,
+    TransactionType,
+)
 
 LOG = {
     "removed": False,
@@ -27,11 +40,68 @@ LOG = {
         "0x9f3d45ac20ccf04b45028b8080bb191eab93e29f7898ed43acf480dd80bba94d",
     ],
 }
+CUSTOM_ECOSYSTEM_NAME = "custom-ecosystem"
+
+
+def make_method_abi(name: str, inputs=None, outputs=None) -> MethodABI:
+    inputs = inputs or []
+    outputs = outputs or []
+    return MethodABI.model_validate(
+        {
+            "type": "function",
+            "name": name,
+            "stateMutability": "nonpayable",
+            "inputs": inputs,
+            "outputs": outputs,
+        }
+    )
 
 
 @pytest.fixture
 def event_abi(vyper_contract_instance):
     return vyper_contract_instance.NumberChange.abi
+
+
+@pytest.fixture
+def configured_custom_ecosystem(
+    custom_networks_config_dict, project, networks, custom_network_name_0
+):
+    data = copy.deepcopy(custom_networks_config_dict)
+    data["networks"]["custom"][0]["ecosystem"] = CUSTOM_ECOSYSTEM_NAME
+
+    # Also ensure we can configure the custom ecosystem as if
+    # it were from a plugin.
+    data[CUSTOM_ECOSYSTEM_NAME] = {"default_network": custom_network_name_0}
+
+    with project.temp_config(**data):
+        yield
+
+
+def test_name(ethereum):
+    assert ethereum.name == "ethereum"
+
+
+def test_request_header(ethereum):
+    actual = ethereum.request_header
+    expected = {"User-Agent": "ape-ethereum"}
+    assert actual == expected
+
+
+def test_request_header_subclass():
+    class L2(Ethereum):
+        name: str = "l2"
+
+    l2 = L2()
+    actual = l2.request_header
+    expected = {"User-Agent": "ape-l2"}
+    assert actual == expected
+
+
+def test_name_when_custom(configured_custom_ecosystem, networks):
+    ecosystem = networks.get_ecosystem(CUSTOM_ECOSYSTEM_NAME)
+    actual = ecosystem.name
+    expected = CUSTOM_ECOSYSTEM_NAME
+    assert actual == expected
 
 
 @pytest.mark.parametrize(
@@ -55,9 +125,8 @@ def test_encode_address(ethereum):
 
 
 def test_encode_calldata(ethereum, address):
-    abi = MethodABI(
-        type="function",
-        name="callMe",
+    abi = make_method_abi(
+        "callMe",
         inputs=[
             ABIType(name="a", type="bytes4"),
             ABIType(name="b", type="address"),
@@ -85,27 +154,140 @@ def test_encode_calldata(ethereum, address):
     assert actual == expected
 
 
+@pytest.mark.parametrize(
+    "sequence_type,item_type",
+    [
+        (list, str),
+        (tuple, str),
+        (list, HexBytes),
+        (tuple, HexBytes),
+    ],
+)
+def test_encode_calldata_byte_array(ethereum, sequence_type, item_type):
+    """
+    Tests against a bug where we could not pass a tuple of HexStr
+    for a byte-array.
+    """
+    abi = make_method_abi(
+        "mint", inputs=[{"name": "leaf", "type": "bytes32"}, {"name": "proof", "type": "bytes32[]"}]
+    )
+    hexstr_array = sequence_type(
+        (
+            item_type("0xfadbd3"),
+            item_type("0x9c6b2c"),
+            item_type("0xc5d246"),
+        )
+    )
+    actual = ethereum.encode_calldata(abi, "0x0123", hexstr_array)
+    assert isinstance(actual, bytes)
+
+
+def test_encode_calldata_nested_structs(ethereum):
+    abi = make_method_abi(
+        "check",
+        inputs=[
+            ABIType(
+                name="data",
+                type="tuple",
+                components=[
+                    ABIType(
+                        name="tokenIn", type="address", components=None, internal_type="address"
+                    ),
+                    ABIType(
+                        name="amountIn", type="uint256", components=None, internal_type="uint256"
+                    ),
+                    ABIType(
+                        name="minAmountOut",
+                        type="uint256",
+                        components=None,
+                        internal_type="uint256",
+                    ),
+                    ABIType(
+                        name="path",
+                        type="tuple",
+                        components=[
+                            ABIType(
+                                name="pairBinSteps",
+                                type="uint256[]",
+                                components=None,
+                                internal_type="uint256[]",
+                            ),
+                            ABIType(
+                                name="versions",
+                                type="uint8[]",
+                                components=None,
+                                internal_type="enum SwapWrapper.Version[]",
+                            ),
+                            ABIType(
+                                name="tokenPath",
+                                type="address[]",
+                                components=None,
+                                internal_type="address[]",
+                            ),
+                        ],
+                        internal_type="struct SwapWrapper.Path",
+                    ),
+                ],
+                internal_type="struct SwapWrapper.SwapData",
+            )
+        ],
+        outputs=[ABIType(name="", type="bool", components=None, internal_type="bool")],
+    )
+    calldata = {
+        "tokenIn": "0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7",
+        "amountIn": 1000000000000000000,
+        "minAmountOut": 10000000,
+        "path": {
+            "pairBinSteps": [0],
+            "versions": [0],
+            "tokenPath": [
+                "0xB31f66AA3C1e785363F0875A1B74E27b85FD66c7",
+                "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E",
+            ],
+        },
+    }
+    actual = ethereum.encode_calldata(abi, calldata)
+    expected = HexBytes(
+        "0x000000000000000000000000000000000000000000000000000000000000002"
+        "0000000000000000000000000b31f66aa3c1e785363f0875a1b74e27b85fd66c7"
+        "0000000000000000000000000000000000000000000000000de0b6b3a76400000"
+        "00000000000000000000000000000000000000000000000000000000098968000"
+        "00000000000000000000000000000000000000000000000000000000000080000"
+        "00000000000000000000000000000000000000000000000000000000000600000"
+        "0000000000000000000000000000000000000000000000000000000000a000000"
+        "000000000000000000000000000000000000000000000000000000000e0000000"
+        "00000000000000000000000000000000000000000000000000000000010000000"
+        "00000000000000000000000000000000000000000000000000000000000000000"
+        "00000000000000000000000000000000000000000000000000000001000000000"
+        "00000000000000000000000000000000000000000000000000000000000000000"
+        "00000000000000000000000000000000000000000000000000000200000000000"
+        "0000000000000b31f66aa3c1e785363f0875a1b74e27b85fd66c7000000000000"
+        "000000000000b97ef9ef8734c71904d8002f8b6bc66dd9c48a6e"
+    )
+    assert actual == expected
+
+
 def test_block_handles_snake_case_parent_hash(eth_tester_provider, sender, receiver):
     # Transaction to change parent hash of next block
     sender.transfer(receiver, "1 gwei")
 
     # Replace 'parentHash' key with 'parent_hash'
     latest_block = eth_tester_provider.get_block("latest")
-    latest_block_dict = eth_tester_provider.get_block("latest").dict()
+    latest_block_dict = eth_tester_provider.get_block("latest").model_dump()
     latest_block_dict["parent_hash"] = latest_block_dict.pop("parentHash")
 
-    redefined_block = Block.parse_obj(latest_block_dict)
+    redefined_block = Block.model_validate(latest_block_dict)
     assert redefined_block.parent_hash == latest_block.parent_hash
 
 
-def test_transaction_acceptance_timeout(temp_config, config, networks):
+def test_transaction_acceptance_timeout(project, networks):
     assert (
         networks.provider.network.transaction_acceptance_timeout
         == DEFAULT_LOCAL_TRANSACTION_ACCEPTANCE_TIMEOUT
     )
     new_value = DEFAULT_LOCAL_TRANSACTION_ACCEPTANCE_TIMEOUT + 1
     timeout_config = {"ethereum": {"local": {"transaction_acceptance_timeout": new_value}}}
-    with temp_config(timeout_config):
+    with project.temp_config(**timeout_config):
         assert networks.provider.network.transaction_acceptance_timeout == new_value
 
 
@@ -113,7 +295,7 @@ def test_decode_logs(ethereum, vyper_contract_instance):
     abi = vyper_contract_instance.NumberChange.abi
     result = [x for x in ethereum.decode_logs([LOG], abi)]
     assert len(result) == 1
-    assert dict(result[0]) == {
+    assert result[0].model_dump() == {
         "event_name": "NumberChange",
         "contract_address": "0x274b028b03A250cA03644E6c578D81f019eE1323",
         "event_arguments": {
@@ -139,7 +321,7 @@ def test_decode_logs_empty_list(ethereum, event_abi):
 
 
 def test_decode_logs_with_struct_from_interface(ethereum):
-    abi = EventABI.parse_obj(
+    abi = EventABI.model_validate(
         {
             "type": "event",
             "name": "ConditionalOrderCreated",
@@ -202,7 +384,7 @@ def test_decode_logs_with_struct_from_interface(ethereum):
 
 def test_decode_block_when_hash_is_none(ethereum):
     # When using some providers, such as hardhat, the hash of the pending block is None
-    block_data_with_none_hash: Dict[str, Any] = {
+    block_data_with_none_hash: dict[str, Any] = {
         "number": None,
         "hash": None,
         "parentHash": HexBytes(
@@ -267,6 +449,48 @@ def test_decode_block_with_hex_values(ethereum):
     assert actual.difficulty == 0
 
 
+def test_decode_logs_topics_not_first(ethereum):
+    """
+    Tests against a condition where we could not decode logs if the
+    topics were not defined first.
+    """
+    abi_dict = {
+        "anonymous": False,
+        "inputs": [
+            {"indexed": False, "internalType": "address", "name": "sender", "type": "address"},
+            {"indexed": True, "internalType": "address", "name": "owner", "type": "address"},
+            {"indexed": True, "internalType": "int24", "name": "tickLower", "type": "int24"},
+            {"indexed": True, "internalType": "int24", "name": "tickUpper", "type": "int24"},
+            {"indexed": False, "internalType": "uint128", "name": "amount", "type": "uint128"},
+            {"indexed": False, "internalType": "uint256", "name": "amount0", "type": "uint256"},
+            {"indexed": False, "internalType": "uint256", "name": "amount1", "type": "uint256"},
+        ],
+        "name": "Mint",
+        "type": "event",
+    }
+    abi = EventABI.model_validate(abi_dict)
+    logs = [
+        {
+            "address": "0x3416cf6c708da44db2624d63ea0aaef7113527c6",
+            "blockHash": "0x488f23ba55f64bf1aac02ee7278b70c3f4bb2fb57b8aaa6ab3b481f1809f18ea",
+            "blockNumber": "0xcfa869",
+            "data": "0x000000000000000000000000c36442b4a4522e871399cd717abdd847ab11fe8800000000000000000000000000000000000000000000000000821d6b102660fb000000000000000000000000000000000000000000000000000009fde8545338000000000000000000000000000000000000000000000000000003548cf35031",  # noqa: E501
+            "logIndex": "0x7a",
+            "removed": False,
+            "topics": [
+                "0x7a53080ba414158be7ec69b987b5fb7d07dee101fe85488f0853ae16239d0bde",
+                "0x000000000000000000000000c36442b4a4522e871399cd717abdd847ab11fe88",
+                "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc",
+                "0x0000000000000000000000000000000000000000000000000000000000000004",
+            ],
+            "transactionHash": "0xf093a630478562d03e3b2476a5b0551609722747d442a462579fa02e1332a941",
+            "transactionIndex": "0x41",
+        }
+    ]
+    actual = list(ethereum.decode_logs(logs, abi))
+    assert actual
+
+
 def test_decode_receipt(eth_tester_provider, ethereum):
     receipt_data = {
         "provider": eth_tester_provider,
@@ -304,6 +528,7 @@ def test_decode_receipt(eth_tester_provider, ethereum):
         "effectiveGasPrice": 0,
     }
     receipt = ethereum.decode_receipt(receipt_data)
+    assert type(receipt) is Receipt  # NOTE: Purposely not using isinstance()
 
     # Tests against bug where input data would come back improperly
     assert receipt.data == HexBytes(
@@ -311,14 +536,181 @@ def test_decode_receipt(eth_tester_provider, ethereum):
     )
 
 
-def test_configure_default_txn_type(temp_config, ethereum):
-    config_dict = {"ethereum": {"mainnet_fork": {"default_transaction_type": 0}}}
+def test_decode_receipt_from_etherscan(eth_tester_provider, ethereum):
+    receipt = ethereum.decode_receipt(
+        {
+            "blockNumber": "11291970",
+            "timeStamp": "1661846925",
+            "hash": "0x5780b43d819035ed1fa079171bdce7f0bbeaa6b01f201f8985d279a66cfc6844",
+            "nonce": "0",
+            "blockHash": "0x3175f953c1da4bf3d15b853dae4a150ae44e2e71380936463e89142c12961968",
+            "transactionIndex": "31",
+            "from": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+            "to": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
+            "value": "0",
+            "gas": "4712388",
+            "gasPrice": "1499999989",
+            "isError": "0",
+            "input": "0x608060405234801561000f575f80fd5b506101248061001d5f395ff3fe6080604052348015600e575f80fd5b50600436106026575f3560e01c8063f207564e14602a575b5f80fd5b6039603536600460b4565b603b565b005b6040516390b5561d60e01b81526004810182905273274b028b03a250ca03644e6c578d81f019ee1323906390b5561d90602401602060405180830381865af41580156088573d5f803e3d5ffd5b505050506040513d601f19601f8201168201806040525081019060aa919060ca565b60b1575f80fd5b50565b5f6020828403121560c3575f80fd5b5035919050565b5f6020828403121560d9575f80fd5b8151801515811460e7575f80fd5b939250505056fea2646970667358221220050eefcb4ae3417fbe131ccad8d577d9488919884d4c4a4d0bf8b9c46ce640f664736f6c63430008150033",  # noqa: E501
+            "contractAddress": "",
+            "cumulativeGasUsed": "8978461",
+            "gasUsed": "257131",
+            "methodId": "0xf926657e",
+            "functionName": "setup(address _reputationOracle, address _recordingOracle, uint256 _reputationOracleStake, uint256 _recordingOracleStake, string _url, string _hash)",  # noqa: E501
+            "required_confirmations": "13703",
+            "status": "1",
+            "chainId": 1,
+        }
+    )
+    assert type(receipt) is Receipt  # NOTE: Purposely not using isinstance()
+    assert receipt.type == 0
+    assert receipt.max_fee > 0
+    assert receipt.gas_price == 1499999989
+
+
+@pytest.mark.parametrize(
+    "blob_gas_used,blob_gas_key",
+    [
+        ("0x20000", "blobGasUsed"),
+        (131072, "blob_gas_used"),
+        (0, "blobGasUsed"),
+        (None, "blobGasUsed"),
+    ],
+)
+def test_decode_receipt_shared_blob(ethereum, blob_gas_used, blob_gas_key):
+    blob_gas_price = "0x4d137e31b"
+
+    data = {
+        "required_confirmations": 0,
+        "blockHash": HexBytes("0x051fb508617fcbe0034538b7ee54c1dedbbbaa6f8d0aeb776edf81bafbc883bd"),
+        "blockNumber": 10526428,
+        "from": "0x194E22F49BC3f58903866d55488E1e9e8d69b517",
+        "gas": 5500000,
+        "gasPrice": 1000000008,
+        "maxFeePerGas": 150000000000,
+        "maxPriorityFeePerGas": 1000000000,
+        "maxFeePerBlobGas": "0x22ecb25c00",
+        "hash": HexBytes("0xd2882bae0d79a6c8e0fbf0089bbcb4b2eef3a1365471ad9f779b06a41ba47d3c"),
+        "input": HexBytes("0xb72d42a1000000000000000000000000000000000000000000"),  # Note: abridged
+        "nonce": 329925,
+        "to": "0xd5c325D183C592C94998000C5e0EED9e6655c020",
+        "transactionIndex": 48,
+        "value": 0,
+        "type": 3,
+        "accessList": [],
+        "chainId": 5,
+        "blobVersionedHashes": [
+            "0x015405d502a27897ad38ffcb80566d1559fa53764befc6d90731082837c2d19e"
+        ],
+        "v": 0,
+        "r": HexBytes("0x4e5bdcbba31548cb8f9806491c5ced7b0f1eac78c7dc0677616c23ee0e469f74"),
+        "s": HexBytes("0x31c98ea044c97225d83b9a3f0fa719e2299b9fbc6436e4b3eb096ea528de03ff"),
+        "yParity": 0,
+        "blobGasPrice": blob_gas_price,
+        blob_gas_key: blob_gas_used,
+        "contractAddress": None,
+        "cumulativeGasUsed": 23085827,
+        "effectiveGasPrice": 1000000008,
+        "gasUsed": 219756,
+        "logs": [],
+        "logsBloom": HexBytes("0x00000000010002"),
+        "status": 1,
+        "transactionHash": HexBytes(
+            "0xd2882bae0d79a6c8e0fbf0089bbcb4b2eef3a1365471ad9f779b06a41ba47d3c"
+        ),
+    }
+    actual = ethereum.decode_receipt(data)
+    assert isinstance(actual, SharedBlobReceipt)
+    assert actual.blob_gas_price == int(blob_gas_price, 16)
+
+    if blob_gas_used:
+        # all test-values are this when they exist.
+        assert actual.blob_gas_used == 131072
+    else:
+        # when None, should also default to 0.
+        assert actual.blob_gas_used == 0
+
+    # Show type=3 is required.
+    data["type"] = 2
+    actual = ethereum.decode_receipt(data)
+    assert not isinstance(actual, SharedBlobReceipt)
+    assert isinstance(actual, Receipt)
+
+
+def test_decode_receipt_misleading_blob_receipt(ethereum):
+    """
+    Tests a strange situation (noticed on Tenderly nodes) where _some_
+    of the keys indicate blob-related fields, set to ``0``, and others
+    are missing, because it's not actually a blob receipt. In this case,
+    don't use the blob-receipt class.
+    """
+    data = {
+        "type": 2,
+        "status": 1,
+        "cumulativeGasUsed": 10565720,
+        "logsBloom": HexBytes(
+            "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"  # noqa: E501
+        ),
+        "logs": [],
+        "transactionHash": HexBytes(
+            "0x62fc9991bc7fb0c76bc83faaa8d1c17fc5efb050542e58ac358932f80aa7a087"
+        ),
+        "from": "0x1f9090aaE28b8a3dCeaDf281B0F12828e676c326",
+        "to": "0xeBec795c9c8bBD61FFc14A6662944748F299cAcf",
+        "contractAddress": None,
+        "gasUsed": 21055,
+        "effectiveGasPrice": 7267406643,
+        "blockHash": HexBytes("0xa47fc133f829183b751488c1146f1085451bcccd247db42066dc6c89eaf5ebac"),
+        "blockNumber": 21051245,
+        "transactionIndex": 130,
+        "blobGasUsed": 0,
+    }
+    actual = ethereum.decode_receipt(data)
+    assert not isinstance(actual, SharedBlobReceipt)
+    assert isinstance(actual, Receipt)
+
+
+def test_default_transaction_type_not_connected_used_default_network(project, ethereum, networks):
+    value = TransactionType.STATIC.value
+    config_dict = {"ethereum": {"mainnet_fork": {"default_transaction_type": value}}}
     assert ethereum.default_transaction_type == TransactionType.DYNAMIC
 
-    with temp_config(config_dict):
+    with project.temp_config(**config_dict):
         ethereum._default_network = "mainnet-fork"
+        provider = networks.active_provider
+
+        # Disconnect so it uses default.
+        networks.active_provider = None
+        try:
+            assert ethereum.default_network_name == "mainnet-fork"
+            assert ethereum.default_transaction_type == TransactionType.STATIC
+            ethereum._default_network = LOCAL_NETWORK_NAME
+        finally:
+            networks.active_provider = provider
+
+
+def test_default_transaction_type_configured_from_local_network(
+    eth_tester_provider, ethereum, project
+):
+    _ = eth_tester_provider  # Connection required so 'ethereum' knows the network.
+    value = TransactionType.STATIC.value
+    config = {"ethereum": {LOCAL_NETWORK_NAME: {"default_transaction_type": value}}}
+    with project.temp_config(**config):
         assert ethereum.default_transaction_type == TransactionType.STATIC
-        ethereum._default_network = LOCAL_NETWORK_NAME
+
+
+def test_default_transaction_type_changed_at_class_level(ethereum):
+    """
+    Simulates an L2 plugin changing the default at the definition-level.
+    """
+
+    class L2NetworkConfig(BaseEthereumConfig):
+        DEFAULT_TRANSACTION_TYPE: ClassVar[int] = TransactionType.STATIC.value
+
+    config = L2NetworkConfig()
+    assert config.local.default_transaction_type.value == 0
+    assert config.mainnet.default_transaction_type.value == 0
+    assert config.mainnet_fork.default_transaction_type.value == 0
 
 
 @pytest.mark.parametrize("network_name", (LOCAL_NETWORK_NAME, "mainnet-fork", "mainnet_fork"))
@@ -328,7 +720,7 @@ def test_gas_limit_local_networks(ethereum, network_name):
 
 
 def test_gas_limit_live_networks(ethereum):
-    network = ethereum.get_network("goerli")
+    network = ethereum.get_network("sepolia")
     assert network.gas_limit == "auto"
 
 
@@ -349,26 +741,97 @@ def test_encode_blueprint_contract(ethereum, vyper_contract_type):
     assert actual.data == HexBytes(expected)
 
 
-def test_decode_return_data_non_empty_padding_bytes(ethereum):
+def test_decode_returndata(ethereum):
+    abi = make_method_abi("doThing", outputs=[{"name": "", "type": "bool"}])
+    data = HashBytes32.__eth_pydantic_validate__(0)
+    actual = ethereum.decode_returndata(abi, data)
+    assert actual == (False,)
+
+
+def test_decode_returndata_non_empty_padding_bytes(ethereum):
     raw_data = HexBytes(
         "0x08c379a000000000000000000000000000000000000000000000000000000000000000200"
         "000000000000000000000000000000000000000000000000000000000000012696e73756666"
         "696369656e742066756e64730000000000000000000000000000"
     )
-    abi = MethodABI.parse_obj(
-        {
-            "type": "function",
-            "name": "transfer",
-            "stateMutability": "nonpayable",
-            "inputs": [
-                {"name": "receiver", "type": "address"},
-                {"name": "amount", "type": "uint256"},
-            ],
-            "outputs": [{"name": "", "type": "bool"}],
-        }
+    abi = make_method_abi(
+        "transfer",
+        inputs=[
+            {"name": "receiver", "type": "address"},
+            {"name": "amount", "type": "uint256"},
+        ],
+        outputs=[{"name": "", "type": "bool"}],
     )
     with pytest.raises(DecodingError):
         ethereum.decode_returndata(abi, raw_data)
+
+
+def test_decode_returndata_no_bytes_returns_zero(ethereum):
+    abi = make_method_abi("doThing", outputs=[{"name": "", "type": "bool"}])
+    actual = ethereum.decode_returndata(abi, b"")
+    assert actual == (0,)
+
+
+def test_decode_returndata_list_with_1_struct(ethereum):
+    """
+    Tests a condition where an array of a list with 1 struct
+    would be turned into a raw tuple instead of the Struct class.
+    """
+    abi = make_method_abi(
+        "getArrayOfStructs",
+        outputs=[
+            ABIType(
+                name="",
+                type="tuple[]",
+                components=[
+                    ABIType(name="a", type="address", components=None, internal_type=None),
+                    ABIType(name="b", type="bytes32", components=None, internal_type=None),
+                ],
+                internal_type=None,
+            )
+        ],
+    )
+    raw_data = HexBytes(
+        "0x000000000000000000000000000000000000000000000000000000000000002"
+        "00000000000000000000000000000000000000000000000000000000000000001"
+        "000000000000000000000000f39fd6e51aad88f6f4ce6ab8827279cfffb92266f"
+        "d91dc47b758f65fd0f6fe511566770c0ae3f94ff9999ceb23bfec3ac9fdc168"
+    )
+    actual = ethereum.decode_returndata(abi, raw_data)
+
+    assert len(actual) == 1
+    # The result should still be a list.
+    # There was also a bug where it was mistakenly a tuple!
+    assert isinstance(actual[0], list)
+    assert len(actual[0]) == 1
+    assert actual[0][0].a == "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+    assert actual[0][0].b == HexBytes(
+        "0xfd91dc47b758f65fd0f6fe511566770c0ae3f94ff9999ceb23bfec3ac9fdc168"
+    )
+
+
+def test_decode_returndata_returns_str_comparable_ints(ethereum):
+    abi = make_method_abi(
+        "gimmeInts",
+        outputs=[ABIType(name="", type="int", components=None, internal_type="int")],
+    )
+    raw_data = HexBytes("0x000000000000000000000000000000000000000000000000000000000000002")
+    actual = ethereum.decode_returndata(abi, raw_data)
+    assert isinstance(actual[0], int)
+    assert isinstance(actual[0], CurrencyValueComparable)
+
+
+def test_decode_returndata_bool(ethereum):
+    abi = MethodABI(
+        type="function",
+        name="view_method",
+        stateMutability="view",
+        inputs=[],
+        outputs=[ABIType(name="", type="bool", components=None, internal_type=None)],
+    )
+    raw_data = HexBytes("0x000000000000000000000000000000000000000000000000000000000000001")
+    actual = ethereum.decode_returndata(abi, raw_data)[0]
+    assert isinstance(actual, bool)
 
 
 @pytest.mark.parametrize("tx_type", TransactionType)
@@ -376,6 +839,82 @@ def test_create_transaction_uses_network_gas_limit(tx_type, ethereum, eth_tester
     tx = ethereum.create_transaction(type=tx_type.value, sender=owner.address)
     assert tx.type == tx_type.value
     assert tx.gas_limit == eth_tester_provider.max_gas
+
+
+def test_create_transaction_with_none_values(ethereum, eth_tester_provider):
+    """
+    Tests against None being in place of values in kwargs,
+    causing their actual defaults not to get used and ValidationErrors
+    to occur.
+    """
+    static = ethereum.create_transaction(
+        value=None, data=None, chain_id=None, gas_price=None, nonce=None, receiver=None
+    )
+    dynamic = ethereum.create_transaction(
+        value=None,
+        data=None,
+        chain_id=None,
+        max_fee=None,
+        max_prioriy_fee=None,
+        nonce=None,
+        receiver=None,
+    )
+    assert isinstance(static, StaticFeeTransaction)  # Because used gas_price
+    assert isinstance(dynamic, DynamicFeeTransaction)  # Because used max_fee
+
+    for tx in (static, dynamic):
+        assert tx.data == b""  # None is not allowed.
+        assert tx.value == 0  # None is same as 0.
+        assert tx.chain_id == eth_tester_provider.chain_id
+        assert tx.nonce is None
+
+    assert static.gas_price is None
+    assert dynamic.max_fee is None
+    assert dynamic.max_priority_fee is None
+
+
+@pytest.mark.parametrize("kwarg_name", ("max_fee", "max_fee_per_gas", "maxFee", "maxFeePerGas"))
+def test_create_transaction_max_fee_per_gas(kwarg_name, ethereum):
+    fee = 1_000_000_000
+    tx = ethereum.create_transaction(**{kwarg_name: fee})
+    assert tx.max_fee == fee
+
+
+@pytest.mark.parametrize("kwarg_name", ("gas_price", "gasPrice"))
+def test_create_transaction_with_gas_price(kwarg_name, ethereum):
+    price = 123
+    tx = ethereum.create_transaction(**{kwarg_name: price})
+    assert tx.gas_price == price
+
+
+@pytest.mark.parametrize(
+    "tx_kwargs",
+    [{"type": 3}, {"max_fee_per_blob_gas": 123}, {"blob_versioned_hashes": [HexBytes(123)]}],
+)
+def test_create_transaction_shared_blob(tx_kwargs, ethereum):
+    tx = ethereum.create_transaction(**tx_kwargs)
+    assert isinstance(tx, SharedBlobTransaction)
+    assert tx.type == TransactionType.SHARED_BLOB.value
+
+
+@pytest.mark.parametrize(
+    "kwarg_name,value", [("max_fee_per_blob_gas", 345), ("maxFeePerBlobGas", "0x2343")]
+)
+def test_create_transaction_max_fee_per_blob_gas(kwarg_name, value, ethereum):
+    tx = ethereum.create_transaction(**{kwarg_name: value})
+    assert isinstance(tx, SharedBlobTransaction)
+    expected = value if isinstance(value, int) else int(value, 16)
+    assert tx.max_fee_per_blob_gas == expected
+
+
+@pytest.mark.parametrize(
+    "kwarg_name,value",
+    [("blob_versioned_hashes", "0x123"), ("blobVersionedHashes", HexBytes("0x123"))],
+)
+def test_create_transaction_blob_versioned_hashed(kwarg_name, value, ethereum):
+    tx = ethereum.create_transaction(**{kwarg_name: [value]})
+    assert isinstance(tx, SharedBlobTransaction)
+    assert tx.blob_versioned_hashes == [HexBytes(value)]
 
 
 @pytest.mark.parametrize("tx_type", TransactionType)
@@ -387,8 +926,286 @@ def test_encode_transaction(tx_type, ethereum, vyper_contract_instance, owner, e
     assert actual.gas_limit == eth_tester_provider.max_gas
 
 
-def test_set_default_network_not_exists(temp_config, ethereum):
+def test_set_default_network_not_exists(ethereum):
     bad_network = "NOT_EXISTS"
     expected = f"No network in 'ethereum' named '{bad_network}'. Options:.*"
     with pytest.raises(NetworkNotFoundError, match=expected):
         ethereum.set_default_network(bad_network)
+
+
+def test_networks(ethereum):
+    actual = ethereum.networks
+
+    with_forks = ("sepolia", "mainnet")
+    without_forks = (LOCAL_NETWORK_NAME,)
+
+    def assert_net(
+        net: str,
+    ):
+        assert net in actual
+        base_class = ForkedNetworkAPI if net.endswith("-fork") else NetworkAPI
+        assert isinstance(actual[net], base_class)
+
+    for net in with_forks:
+        assert_net(net)
+        assert_net(f"{net}-fork")
+    for net in without_forks:
+        assert_net(net)
+
+
+def test_networks_includes_custom_networks(
+    ethereum, custom_networks_config_dict, project, custom_network_name_0, custom_network_name_1
+):
+    with project.temp_config(**custom_networks_config_dict):
+        actual = ethereum.networks
+        for net in (
+            "sepolia",
+            "mainnet",
+            LOCAL_NETWORK_NAME,
+            custom_network_name_0,
+            custom_network_name_1,
+            # Show custom networks are auto-forked!
+            f"{custom_network_name_0}-fork",
+            f"{custom_network_name_1}-fork",
+        ):
+            assert net in actual
+            assert isinstance(actual[net], NetworkAPI)
+
+
+def test_networks_when_custom_ecosystem(
+    configured_custom_ecosystem, networks, custom_network_name_0
+):
+    obj = networks.custom_ecosystem
+    actual = obj.networks
+    assert obj.name == CUSTOM_ECOSYSTEM_NAME
+    assert custom_network_name_0 in actual
+    assert "mainnet" not in actual
+
+
+def test_networks_multiple_networks_with_same_name(custom_networks_config_dict, ethereum, project):
+    data = copy.deepcopy(custom_networks_config_dict)
+    data["networks"]["custom"][0]["name"] = "foonet"
+    data["networks"]["custom"][1]["name"] = "foonet"
+    expected = ".*More than one network named 'foonet' in ecosystem 'ethereum'.*"
+    with project.temp_config(**data):
+        with pytest.raises(NetworkError, match=expected):
+            _ = ethereum.networks
+
+
+def test_getattr(ethereum):
+    assert ethereum.mainnet.name == "mainnet"
+    assert isinstance(ethereum.mainnet, NetworkAPI)
+
+
+def test_getattr_custom_networks(
+    ethereum, custom_networks_config_dict, project, custom_network_name_0
+):
+    with project.temp_config(**custom_networks_config_dict):
+        actual = getattr(ethereum, custom_network_name_0)
+        assert actual.name == custom_network_name_0
+        assert isinstance(actual, NetworkAPI)
+
+
+def test_default_network(ethereum):
+    assert ethereum.default_network_name == LOCAL_NETWORK_NAME
+
+
+def test_default_network_when_custom_and_set_in_config(
+    configured_custom_ecosystem, networks, custom_network_name_0
+):
+    ecosystem = networks.get_ecosystem(CUSTOM_ECOSYSTEM_NAME)
+    # Force it to use config value (in case was set from previous test)
+    ecosystem._default_network = None
+    assert ecosystem.default_network_name == custom_network_name_0
+
+
+def test_default_network_name_set_programmatically(ethereum):
+    ethereum._default_network = "testnet"
+    assert ethereum.default_network_name == "testnet"
+    ethereum._default_network = None
+
+
+def test_default_network_name_from_config(project, ethereum):
+    cfg = {"ethereum": {"default_network": "sepolia"}}
+    ethereum._default_network = None
+    with project.temp_config(**cfg):
+        assert ethereum.default_network_name == "sepolia"
+
+
+def test_default_network_name_when_not_set_uses_local(project, ethereum):
+    orig = project.config.ethereum
+    data = orig if isinstance(orig, dict) else orig.model_dump()
+    data = {k: v for k, v in data.items() if k not in ("default_network",)}
+    data["default_network"] = None
+    with project.temp_config(**data):
+        ethereum._default_network = None
+        assert ethereum.default_network_name == LOCAL_NETWORK_NAME
+
+
+def test_default_network_name_when_not_set_and_no_local_uses_only(
+    project, custom_networks_config_dict
+):
+    """
+    Tests a condition that is rare but when a default network is
+    not set but there is a single network. In this case, it
+    should use the single network by default.
+    """
+    net = copy.deepcopy(custom_networks_config_dict["networks"]["custom"][0])
+
+    # In a situation with an ecosystem with only a single network.
+    ecosystem_name = "acustomeco"
+    net["ecosystem"] = ecosystem_name
+
+    only_network = "onlynet"  # More obvious name for test.
+    net["name"] = only_network
+
+    with project.temp_config(networks={"custom": [net]}):
+        ecosystem = project.network_manager.get_ecosystem(ecosystem_name)
+        ecosystem._default_network = None
+        actual = ecosystem.default_network_name
+
+        if actual == LOCAL_NETWORK_NAME:
+            # For some reason, this test is flake-y. Offer more info
+            # to try and debug when this happens (intermittent CI failure).
+            all_nets = ", ".join([x for x in ecosystem.networks.keys()])
+            pytest.fail(
+                f"assert '{LOCAL_NETWORK_NAME}' == '{only_network}'. More info below:\n"
+                f"ecosystem_name={ecosystem.name}\n"
+                f"networks={all_nets}\n"
+                f"type={type(ecosystem)}"
+            )
+        else:
+            # This should pass.
+            assert ecosystem.default_network_name == only_network
+
+
+def test_decode_custom_error(chain, ethereum):
+    data = HexBytes("0x6a12f104")
+    abi = [ErrorABI(type="error", name="InsufficientETH")]
+    contract_type = ContractType(abi=abi)
+    addr = cast(AddressType, "0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD")
+
+    # Hack in contract-type.
+    chain.contracts[addr] = contract_type
+
+    actual = ethereum.decode_custom_error(data, addr)
+    assert isinstance(actual, CustomError)
+
+
+def test_decode_custom_error_contract_type_not_found(ethereum):
+    data = HexBytes("0x6a12f104")
+    # not known
+    addr = cast(AddressType, "0x4fC92A3afd70395Cd496C647d5a6CC9D4B2b7FAD")
+    actual = ethereum.decode_custom_error(data, addr)
+    assert actual is None
+
+
+def test_decode_custom_error_tx_unsigned(ethereum):
+    data = HexBytes("0x6a12f104")
+    # not known
+    addr = cast(AddressType, "0x4fC92A3afd70395Cd496C647d5a6CC9D4B2b7FAD")
+    actual = ethereum.decode_custom_error(data, addr)
+    assert actual is None
+
+
+def test_decode_custom_error_selector_not_found(chain, ethereum):
+    data = HexBytes("0x6a12f104")
+    abi: list = []
+    contract_type = ContractType(abi=abi)
+    addr = cast(AddressType, "0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD")
+
+    # Hack in contract-type.
+    chain.contracts.contract_types[addr] = contract_type
+
+    tx = ethereum.create_transaction()
+    actual = ethereum.decode_custom_error(data, addr, txn=tx)
+    assert actual is None
+
+
+def test_enrich_trace(ethereum, vyper_contract_instance, owner):
+    tx = vyper_contract_instance.setNumber(96247783, sender=owner)
+    trace = TransactionTrace(transaction_hash=tx.txn_hash)
+    actual = ethereum.enrich_trace(trace)
+    assert isinstance(actual, TransactionTrace)
+    assert actual._enriched_calltree is not None
+    assert re.match(r"VyperContract\.setNumber\(num=\d*\) \[\d* gas]", repr(actual))
+
+
+def test_enrich_trace_handles_call_type_enum(ethereum, vyper_contract_instance, owner):
+    """
+    Testing a custom trace who's call tree uses an Enum type instead of a str.
+    """
+
+    class PluginTxTrace(TransactionTrace):
+        def get_calltree(self) -> CallTreeNode:
+            call = super().get_calltree()
+            # Force enum value instead of str.
+            call.call_type = CallType.CALL
+            return call
+
+    tx = vyper_contract_instance.setNumber(96247783, sender=owner)
+    trace = PluginTxTrace(transaction_hash=tx.txn_hash)
+    actual = ethereum.enrich_trace(trace)
+    assert isinstance(actual, PluginTxTrace)
+    assert actual._enriched_calltree is not None
+    assert re.match(r"VyperContract\.setNumber\(num=\d*\) \[\d* gas]", repr(actual))
+
+    # Hook into helper method hackily with an enum.
+    # Notice the mode is Python and not JSON here.
+    call = trace.get_calltree().model_dump(by_alias=True)
+    actual = ethereum._enrich_calltree(call)
+    assert actual["call_type"] == CallType.CALL.value
+
+
+def test_enrich_trace_handles_events(ethereum, vyper_contract_instance, owner):
+    tx = vyper_contract_instance.setNumber(96247783, sender=owner)
+
+    # Used Hardhat to get the data.
+    events = [
+        {
+            "call_type": "EVENT",
+            "data": "0x3ee0dda47a082585c3c66434c4b5b1b4558581efb5f4ee60a59a58bc1201404b00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000060000000000000000000000000000000000000000000000000000000000000000744796e616d696300000000000000000000000000000000000000000000000000",  # noqa: E501
+            "depth": 1,
+            "topics": [
+                "0xa84473122c11e32cd505595f246a28418b8ecd6cf819f4e3915363fad1b8f968",
+                "0x000000000000000000000000000000000000000000000000000000000000007b",
+                "0x9f3d45ac20ccf04b45028b8080bb191eab93e29f7898ed43acf480dd80bba94d",
+            ],
+        }
+    ]
+
+    calldata = "0x3fb5c1cb000000000000000000000000000000000000000000000000000000000000007b"
+    call = {
+        "events": events,
+        "call_type": "CALL",
+        "address": vyper_contract_instance.address,
+        "calldata": calldata,
+    }
+
+    class MyTrace(TransactionTrace):
+        def get_calltree(self) -> CallTreeNode:
+            return CallTreeNode.model_validate(call)
+
+    trace = MyTrace(transaction_hash=tx.txn_hash)
+    actual = ethereum.enrich_trace(trace)
+    assert "events" in actual._enriched_calltree, "is evm-trace updated?"
+    events = actual._enriched_calltree["events"]
+    expected = [
+        {
+            "name": "NumberChange",
+            "calldata": {
+                "b": "0x3ee0..404b",
+                "prevNum": 0,
+                "dynData": '"Dynamic"',
+                "newNum": 123,
+                "dynIndexed": "0x9f3d..a94d",
+            },
+        }
+    ]
+    assert events == expected
+
+
+def test_get_deployment_address(ethereum, owner, vyper_contract_container):
+    actual = ethereum.get_deployment_address(owner.address, owner.nonce)
+    expected = owner.deploy(vyper_contract_container, 490)
+    assert actual == expected
