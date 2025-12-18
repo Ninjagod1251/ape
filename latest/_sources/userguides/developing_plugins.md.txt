@@ -1,7 +1,7 @@
 # Developing Plugins
 
 Your plugin project can be any type of python project, so long as its package name starts with `ape-` (such as `ape-ethereum`).
-The module and plugin directory name must start with `ape_` (such as `ape_ethereum`).
+The module and plugin directory names must start with `ape_` (such as `ape_ethereum`).
 To create an `ape` plugin, implement one or more API classes from the `ape.api` namespace and/or add key
 `ape_cli_subcommands` to your entry-points list in your project's `setup.py`, depending on what type of plugin you want to create.
 This guide is intended to assist in both of those use cases.
@@ -17,7 +17,11 @@ The following is a list of example plugins to use as a reference when developing
 
 As previously mentioned, a plugin project is merely a python project.
 However, you can optionally use this [project template](https://github.com/ApeWorX/project-template) for initializing your plugin.
-**NOTE**: this template is primarily designed for plugins built within the ApeWorX team organization; not everything may apply.
+
+```{note}
+This template is primarily designed for plugins built within the ApeWorX team organization; not everything may apply.
+```
+
 It is okay to delete anything that does not work or that you don't find helpful.
 The template may be good to follow if you want to keep your plugin of similar quality to plugins developed by the ApeWorX team.
 
@@ -28,7 +32,10 @@ A benefit of the plugin system is that each plugin can implement these however t
 Two plugins with the same API may do entirely different things and yet be interchangeable in their usage.
 
 To implement an API, import its class and use it as a base-class in your implementation class.
-**WARNING**: The plugin will fail to work properly if you do not implement all the abstract methods.
+
+```{warning}
+The plugin will fail to work properly if you do not implement all the abstract methods.
+```
 
 ```python
 from ape.api import ProviderAPI
@@ -54,6 +61,9 @@ from ape import plugins
 # Here, we register our provider plugin so we can use it in 'ape'.
 @plugins.register(plugins.ProviderPlugin)
 def providers():
+    # NOTE: By keeping this import local, we avoid slower plugin load times.
+    from ape_my_plugin.provider import MyProvider
+    
     # NOTE: 'MyProvider' defined in a prior code-block.
     yield "ethereum", "local", MyProvider
 ```
@@ -61,6 +71,11 @@ def providers():
 This decorator hooks into ape core and ties everything together by looking for all local installed site-packages that start with `ape_`.
 Then, it will loop through these potential `ape` plugins and see which ones have created a plugin type registration.
 If the plugin type registration is found, then `ape` knows this package is a plugin and attempts to process it according to its registration interface.
+
+```{warning}
+Ensure your plugin's `__init__.py` file imports quickly by keeping all expensive imports in the hook functions locally.
+This helps Ape register plugins faster, which is required when checking for API implementations.
+```
 
 ### CLI Plugins
 
@@ -96,7 +111,10 @@ entry_points={
 ...
 ```
 
-**NOTE**: Typically, a `_cli.py` module is used instead of a `__init__.py` module for the location of the Click CLI group because it is logically separate from the Python module loading process.
+```{note}
+Typically, a `_cli.py` module is used instead of a `__init__.py` module for the location of the Click CLI group because it is logically separate from the Python module loading process.
+```
+
 If you try to define them together and use `ape` as a library as well, there is a race condition in the loading process that will prevent the CLI plugin from working.
 
 For common `click` usages, use the `ape.cli` namespace.
@@ -133,7 +151,10 @@ Similarly, if you implemented a `ProviderAPI`, that provider is now accessible i
 ape console my_script --network ethereum:local:my_provider_plugin
 ```
 
-**NOTE**: The `--network` option is available on the commands `test` and `console` as well as any CLI command that uses the [network option decorator](../methoddocs/cli.html?highlight=network_option#ape.cli.options.network_option).
+```{note}
+The `--network` option is available on the commands `test` and `console` as well as any CLI command that uses the [network option decorator](../methoddocs/cli.html?highlight=network_option#ape.cli.options.network_option).
+```
+
 To learn more about networks in Ape, follow [this guide](./networks.html).
 
 When creating the CLI-based plugins, you should see your CLI command as a top-level command in the `ape --help` output:

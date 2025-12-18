@@ -2,6 +2,14 @@
 
 Testing an ape project is important and easy.
 
+## Pytest
+
+Before learning how testing works in Ape, you should have an understanding of [the pytest framework](https://docs.pytest.org/en/7.4.x/) and its concepts such as fixtures, mark-decorators, and pytest plugins such as x-dist, pytest-mock, and pytest-cov.
+Once you have learned about pytest, Ape testing becomes intuitive because it is built on top of pytest.
+In fact, `ape-test` is itself a `pytest` plugin!
+
+You write your smart-contracts much like you write regular Python tests.
+
 ## Test Structure
 
 Tests must be located in a project's `tests/` directory. Each **test file** must start with `test_` and have the `.py` extension, such as `test_my_contract.py`.
@@ -13,7 +21,9 @@ def test_add():
     assert 1 + 1 == 2
 ```
 
-**NOTE**: `pytest` assumes the *actual* value is on the left and the *expected* value is on the right.
+```{note}
+`pytest` assumes the *actual* value is on the left and the *expected* value is on the right.
+```
 
 ## Test Pattern
 
@@ -23,41 +33,66 @@ Tests are generally divisible into three parts:
 2. Invocation
 3. Assertion
 
-In the example above, we created a fixture that deploys our smart-contract.
-This is an example of a 'setup' phase.
-Next, we need to call a method on our contract.
+An example of the setup-phase would be creating a `pytest.fixture` that deploys our smart contract.
+(To learn more about pytest fixtures in Ape, see the `Fixtures` section below!)
+For now, what you need to know is that it's a piece of code that executes before the test runs, and it is decorated with a `@pytest.fixture`.
+
+The second phase is `Invocation`, which encompasses invoking the function we are testing.
+The last phase, `Assertion`, requires enacting on the expectation about how the code should behave.
 Let's assume there is an `authorized_method()` that requires the owner of the contract to make the transaction.
 If the sender of the transaction is not the owner, the transaction will fail to complete and will revert.
+We use `assert` statements in Ape (and `pytest`) to check that our expectations are correct.
+A test passes if all the `assert` statements are `True` and it fails if any are `False`.
 
 This is an example of how that test may look:
 
 ```python
+import ape
+import pytest
+import re
+
+# SETUP PHASE
+# NOTE: More on fixtures is discussed in later sections of this guide!
+@pytest.fixture
+def owner(accounts):
+    return accounts[0]
+
+@pytest.fixture
+def not_owner(accounts):
+    return accounts[1]
+
+@pytest.fixture
+def my_contract(owner, project):
+    return owner.deploy(project.MyContract)
+
 def test_authorization(my_contract, owner, not_owner):
+    # INVOCATION PHASE
     my_contract.set_owner(sender=owner)
     assert owner == my_contract.owner()
 
+    # ASSERTION PHASE
     with ape.reverts("!authorized"):
         my_contract.authorized_method(sender=not_owner)
-```
-
-```{note}
-Ape has built-in test and fixture isolation for all pytest scopes.
-To disable isolation add the `--disable-isolation` flag when running `ape test`
+        
+    # You can also test against custom error types
+    with ape.reverts(my_contract.Unauthorized):
+        my_contract.authorized_method(sender=not_owner)
+        
+    # Or match error patterns with regex
+    with ape.reverts(re.compile(r"^!auth.*")):
+        my_contract.authorized_method(sender=not_owner)
 ```
 
 ## Fixtures
 
-Fixtures are any type of reusable instances of something with configurable scopes. `pytest` handles passing fixtures
-into each test method as test-time. To learn more about [fixtures](https://docs.pytest.org/en/7.1.x/explanation/fixtures.html)
+Now that we have discussed the full flow of a test, let's dive deeper into the specific parts, starting with `pytest.fixtures`.
 
-Define fixtures for static data used by tests. This data can be accessed by all tests in the suite unless specified otherwise. This could be data as well as helpers of modules which will be passed to all tests.
+You can define and use `pytest` fixtures in your Ape tests.
+Learn more about fixtures from [this guide](https://docs.pytest.org/en/7.1.x/explanation/fixtures.html).
+The syntax and functionalities of fixtures work exactly the same in Ape as it does with `pytest`.
 
-A common place to define fixtures are in the **conftest.py** which should be saved under the test directory:
-
-conftest.py is used to import external plugins or modules. By defining the following global variable, pytest will load the module and make it available for its test.
-
-You can define your own fixtures or use existing ones. The `ape-test` plugin comes
-with fixtures you will likely want to use:
+The `ape-test` plugin comes with fixtures you will likely want to use.
+The following guide explains each fixture that comes with Ape.
 
 ### accounts fixture
 
@@ -90,12 +125,13 @@ def test_my_method(owner, receiver):
     ...
 ```
 
-You can configure your accounts by changing the `mnemonic` or `number_of_accounts` settings in the `test` section of your `ape-config.yaml` file:
+You can configure your accounts by changing the `mnemonic`, `number_of_accounts`, and `balance` in the `test` section of your `ape-config.yaml` file:
 
 ```yaml
 test:
   mnemonic: test test test test test test test test test test test junk
   number_of_accounts: 5
+  balance: 100_000 ETH
 ```
 
 If you are running tests against `anvil`, your generated test accounts may not correspond to the `anvil`'s default generated accounts despite using the same mnemonic. In such a case, you are able to specify a custom derivation path in `ape-config.yaml`:
@@ -107,12 +143,20 @@ test:
   hd_path: "m/44'/60'/0'/0/{}"
 ```
 
-If you are using a fork-provider, such as [Hardhat](https://github.com/ApeWorX/ape-hardhat), you can use impersonated accounts by accessing random addresses off the fixture:
+If you are using a provider that supports impersonating accounts, such as [Foundry](https://github.com/ApeWorX/ape-foundry), use the address as the key in the test-accounts manager:
 
 ```python
 @pytest.fixture
 def vitalik(accounts):
     return accounts["0xab5801a7d398351b8be11c439e05c5b3259aec9b"]
+```
+
+You can also call `accounts.impersonate_account()` for improved readability and performance.
+
+```python
+@pytest.fixture
+def vitalik(accounts):
+    return accounts.impersonate_account("0xab5801a7d398351b8be11c439e05c5b3259aec9b")
 ```
 
 Using a fork-provider such as [Hardhat](https://github.com/ApeWorX/ape-hardhat), when using a contract instance as the sender in a transaction, it will be automatically impersonated:
@@ -164,11 +208,9 @@ You also have access to the `project` you are testing. You will need this to dep
 ```python
 import pytest
 
-
 @pytest.fixture
 def owner(accounts):
     return accounts[0]
-
 
 @pytest.fixture
 def my_contract(project, owner):
@@ -190,6 +232,84 @@ def my_contract(Contract):
 
 It has the same interface as the [ChainManager](../methoddocs/managers.html#ape.managers.chain.ChainManager).
 
+## Isolation
+
+By default, tests run with chain-isolation.
+This means, at the start of each test, a snapshot is taken.
+After each test completes, the chain reverts to that snapshot from the beginning of the test.
+
+By default, every `pytest` fixture is `function` scoped, meaning it will be replayed each time it is requested (no result-caching).
+For example, if you deploy a contract in a function-scoped fixture, it will be re-deployed each time the fixture gets used in your tests.
+To only deploy once, you can use different scopes, such as `"session"`, `"package"`, `"module"`, or `"class"`, and you **should** use these fixtures right away, either via `autouse=True` or using them in the first collected tests.
+Otherwise, higher-scoped fixtures that arrive late in a Pytest session will cause the snapshotting system to have to rebase itself, which can be costly.
+For example, if you define a session scoped fixture that deploys a contract and makes transactions, the state changes from those transactions remain in subsequent tests, whether those tests use that fixture or not.
+However, if a new fixture of a session scope comes into play after module, package, or class scoped snapshots have already been taken, those lower-scoped fixtures are now invalid and have to re-run after the session fixture to ensure the session fixture remains in the session-snapshot.
+
+In the following example, the `my_contract` fixture gets deployed upon its first usage, which happens in the test `test_my_contract_0()`.
+During the test `test_something_else()`, it may not have been deployed yet, as it was not requested, and it is defined before the other tests.
+Then, during `test_my_contract_1()`, instead of deploying again, it uses the cached result from the session-scoped fixture and the chain still has it in its state because the fixture is session-scoped and runs before the test-isolation.
+
+```python
+import pytest
+
+@pytest.fixture(scope="session")
+def my_contract(accounts, project):
+    owner = accounts[0]
+    contract = project.MyContract.deploy(sender=owner)
+    # Can also do stateful transactions in a session-scoped fixture.
+    contract.initialize(sender=owner)
+    return contract
+
+def test_something_else():
+    ...
+
+def test_my_contract_0(my_contract):
+    my_contract.myMethod()
+
+def test_my_contract_1(my_contract):
+    my_contract.myMethod()
+```
+
+To disable isolation, run `ape test` with the `--disable-isolation` flag.
+When isolation is disabled, the blockchain's state persists as the tests run.
+This will be more performant and less complex, but will also cause non-deterministic results in your tests as each test inherits the state of whatever was run before it.
+
+This may be further complicated when running with other pytest plugins such as `pytest-xdist` or `pytest-split` which re-arranges the order that tests are executed in (not recommended to use these plugins together with ape until more proper integrations are developed).
+
+```shell
+ape test --disable-isolation
+```
+
+```{warning}
+Be mindful if, when, and how you define non-function scoped fixtures.
+Pytest activates fixtures in the order they are used.
+If a session scoped fixture comes into play after package, module, or class scoped fixtures, the isolation logic has to invalidate each of those scopes and replay them after the session scoped, which causes any benefits of package, module, or class scopes to be void.
+If you are using higher-scoped fixtures for parametrized fixtures with lower-scoped fixtures, each itertion of the parametried fixture invalidates the lower-level fixtures each time, rendering everything to behave as function scoped until the end of the parametrized fixtures first run-through.
+```
+
+If you are using chain-isolation and have a higher-scoped fixture that you know is for-sure not chain-altering, you can use `ape.fixture` and the `chain_isolation` flag, and it may improve performance:
+
+```python
+import ape
+from ape_tokens import tokens
+
+@ape.fixture(scope="session", chain_isolation=False, params=("WETH", "DAI", "BAT"))
+def token_addresses(request):
+    return tokens[request].address
+```
+
+You can also disable isolation for individual scopes using Ape's config.
+For example, the below config will disable isolation across all high-level scopes but maintain isolation for the function-scope.
+This is useful if you want your individual tests to be isolated but not any session/module scoped fixtures.
+
+```toml
+[tool.ape.test.isolation]
+enable_session = false
+enable_package = false
+enable_module = false
+enable_class = false
+```
+
 ## Ape testing commands
 
 ```bash
@@ -210,10 +330,11 @@ ape test test_my_contract -I -s
 
 ## Test Providers
 
-Out-of-the-box, your tests run using the `eth-tester` provider, which comes bundled with ape. If you have `geth` installed, you can use the `ape-geth` plugin that also comes with ape.
+Out-of-the-box, your tests run using the `eth-tester` provider, which comes bundled with ape.
+If you have Ethereum node software installed, you can use the `ape-node` plugin that also comes with ape.
 
 ```bash
-ape test --network ethereum:local:geth
+ape test --network ethereum:local:node
 ```
 
 Each testing plugin should work the same way. You will have access to the same test accounts.
@@ -222,6 +343,36 @@ Another option for testing providers is the [ape-hardhat](https://github.com/Ape
 
 ```bash
 ape plugins install hardhat
+```
+
+### Mining
+
+Test providers allow you to control mining.
+For example, mine an empty block using the [mine](../methoddocs/api.html#ape.api.providers.TestProviderAPI.mine) method:
+
+```python
+from ape import chain
+
+chain.provider.mine()
+```
+
+You can also pass it a number of blocks to mine:
+
+```python
+from ape import chain
+
+chain.provider.mine(5)
+```
+
+By default, testing providers automatically mine after sending transactions.
+However, you can disable this feature by setting the property.
+
+```python
+from ape import chain
+
+chain.provider.auto_mine = False
+# You can also re-enable
+chain.provider.auto_mine = True
 ```
 
 ## Advanced Testing Tips
@@ -247,13 +398,16 @@ def test_account_balance(project, owner, receiver, nft):
     assert actual == expect
 ```
 
-## Testing Transaction Failures
+## Testing Transaction Reverts
 
 Similar to `pytest.raises()`, you can use `ape.reverts()` to assert that contract transactions fail and revert.
+To learn more about reverts in Ape, see the [reverts guide](./reverts.html).
 
 From our earlier example we can see this in action:
 
 ```python
+import ape
+
 def test_authorization(my_contract, owner, not_owner):
     my_contract.set_owner(sender=owner)
     assert owner == my_contract.owner()
@@ -272,7 +426,11 @@ If the message in the `ContractLogicError` raised by the transaction failure is 
 You may also supply an `re.Pattern` object to assert on a message pattern, rather than on an exact match.
 
 ```python
-# Matches explicitly "foo" or "bar"
+import ape
+import re
+
+# Matches
+# "foo" or "bar"
 with ape.reverts(re.compile(r"^(foo|bar)$")):
     ...
 ```
@@ -291,7 +449,7 @@ assert x != 0  # dev: invalid value
 Take for example:
 
 ```python
-# @version 0.3.7
+# @version 0.4.3
 
 @external
 def check_value(_value: uint256) -> bool:
@@ -302,6 +460,8 @@ def check_value(_value: uint256) -> bool:
 We can explicitly cause a transaction revert and check the failed line by supplying an expected `dev_message`:
 
 ```python
+import ape
+
 def test_authorization(my_contract, owner):
     with ape.reverts(dev_message="dev: invalid value"):
         my_contract.check_value(sender=owner)
@@ -320,7 +480,10 @@ Because `dev_message` relies on transaction tracing to function, you must use a 
 You may also supply an `re.Pattern` object to assert on a dev message pattern, rather than on an exact match.
 
 ```python
-# Matches explictly "dev: foo" or "dev: bar"
+import ape
+import re
+
+# Matches "dev: foo" or "dev: bar"
 with ape.reverts(dev_message=re.compile(r"^dev: (foo|bar)$")):
     ...
 ```
@@ -349,40 +512,24 @@ Similarly, if you require dev assertions for non-reentrant functions you must be
 
 ```python
 @internal
-@nonreentrant('lock')
+@nonreentrant
 def _foo_internal():  # dev: correct location
     pass
 
 @external
-@nonreentrant('lock')
+@nonreentrant
 def foo():
     self._foo_internal()  # dev: incorrect location
 ```
 
 ### Custom Errors
 
-As of Solidity 0.8.4, custom errors have been introduced to the ABI.
-To make assertions on custom errors, you can use the types defined on your contracts.
+In your tests, you can make assertions about custom errors raised.
+(For more information on custom errors, [see reverts guide on custom errors](./reverts.html#custom-errors).)
 
-For example, if I have a contract called `MyContract.sol`:
-
-```solidity
-// SPDX-License-Identifier: GPL-3.0
-pragma solidity ^0.8.4;
-
-error Unauthorized(address unauth_address);
-
-contract MyContract {
-    address payable owner = payable(msg.sender);
-    function withdraw() public {
-        if (msg.sender != owner)
-            revert Unauthorized(msg.sender);
-        owner.transfer(address(this).balance);
-    }
-}
-```
-
-I can ensure unauthorized withdraws are disallowed by writing the following test:
+For example, assume a custom exception in a Solidity contract (variable `contract`) is called `Unauthorized`.
+It can be accessed via `contract.Unauthorized`.
+We can ensure unauthorized withdraws are disallowed by writing the following test:
 
 ```python
 import ape
@@ -427,7 +574,10 @@ def test_error_on_deploy(account, project):
 ```
 
 Alternatively, you can attempt to use the address from the revert error to find the error type.
-**NOTE**: The address will only exist for transactions that were published (e.g. not for failures during estimating gas), and this may only work on certain providers.
+
+```{note}
+The address will only exist for transactions that were published (e.g. not for failures during estimating gas), and this may only work on certain providers.
+```
 
 ```python
 import ape
@@ -455,11 +605,9 @@ To run an entire test using a specific network / provider combination, use the `
 ```python
 import pytest
 
-
 @pytest.mark.use_network("fantom:local:test")
 def test_my_fantom_test(chain):
     assert chain.provider.network.ecosystem.name == "fantom"
-
 
 @pytest.mark.use_network("ethereum:local:test")
 def test_my_ethereum_test(chain):
@@ -488,12 +636,10 @@ This is useful if certain fixtures must run in certain networks.
 ```python
 import pytest
 
-
 @pytest.fixture
 def stark_contract(networks, project):
     with networks.parse_network_choice("starknet:local"):
         yield project.MyStarknetContract.deploy()
-
 
 def test_starknet_thing(stark_contract, stark_account):
     # Uses the starknet connection via the stark_contract fixture
@@ -509,10 +655,14 @@ Thus, you can enter and exit a provider's context as much as you need in tests.
 ## Gas Reporting
 
 To include a gas report at the end of your tests, you can use the `--gas` flag.
-**NOTE**: This feature requires using a provider with tracing support, such as [ape-hardhat](https://github.com/ApeWorX/ape-hardhat).
+
+```{note}
+This feature works best when using a provider with tracing support, such as [ape-foundry](https://github.com/ApeWorX/ape-foundry).
+When not using a provider with adequate tracing support, such as `EthTester`, gas reporting is limited to receipt-level data.
+```
 
 ```bash
-ape test --network ethereum:local:hardhat --gas
+ape test --network ethereum:local:foundry --gas
 ```
 
 At the end of test suite, you will see tables such as:
@@ -526,12 +676,6 @@ At the end of test suite, you will see tables such as:
   withdraw                    2   28307   38679   33493    33493
   changeOnStatus              2   23827   45739   34783    34783
   getSecret                   1   24564   24564   24564    24564
-
-                  Transferring ETH Gas
-
-  Method     Times called   Min.   Max.   Mean   Median
- ───────────────────────────────────────────────────────
-  to:test0              2   2400   9100   5750     5750
 
                      TestContract Gas
 
@@ -592,7 +736,11 @@ To get contract coverage, use the `--coverage` flag when running `ape test`:
 ape test --coverage
 ```
 
-**NOTE**: Some types of coverage require using a provider that supports transaction tracing, such as `ape-hardhat` or `ape-foundry`.
+```{note}
+Some types of coverage require using a provider that supports transaction tracing, such as `ape-hardhat` or `ape-foundry`.
+```
+
+Without using a provider with adequate tracing support, coverage is limited to receipt-level data.
 
 Afterwards, you should see a coverage report looking something like:
 
@@ -648,12 +796,18 @@ Then, you will see table outputs like this:
 This is useful when trying to find the missing areas to cover.
 The HTML report also supports `verbose: true` and it will show similar tables.
 
-**NOTE**: You may notice methods with zero statements.
+```{note}
+You may notice methods with zero statements.
+```
+
 One example of a method with zero statements may be from an auto-generated getter method for a public variable; certain versions of Vyper do not contain source mappings for these methods.
 However, Ape will still check to see if this method has been called in your tests.
 To get 100% coverage, you must call these methods in your tests.
 
-**NOTE**: Notice some methods use the full selector while others don't.
+```{note}
+Notice some methods use the full selector while others don't.
+```
+
 Methods that use the selector mean that their short name is shared with other methods.
 This happens in Vyper from auto-generated kwarg-based methods.
 Thus, the full selector is used to distinguish the methods in the coverage (and gas) reports.
